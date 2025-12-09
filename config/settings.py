@@ -26,11 +26,24 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/fastapi_db"
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/memolog"
     )
 
     # Logging
     log_level: str = "INFO"
+
+    # OpenAI Configuration
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_chat_model: str = "gpt-4o-mini"
+    embedding_dimension: int = 1536
+
+    # Telegram Bot Configuration
+    telegram_bot_token: str = ""
+    telegram_webhook_url: str = ""
+
+    # Vector Search Settings
+    search_top_k: int = 5
 
     @property
     def is_production(self) -> bool:
