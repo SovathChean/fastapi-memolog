@@ -1,14 +1,16 @@
 """Telegram webhook routes for memolog."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+import logging
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from telegram import Bot, Update
 
 from app.common.response import ResponseBuilder, ResponseMessage
-from app.services.telegram_service import TelegramService
+from app.telegram import TelegramBot
 from config.settings import get_settings
 
 router = APIRouter(prefix="/telegram", tags=["Telegram"])
+logger = logging.getLogger(__name__)
 
 
 class TelegramMessage(BaseModel):
@@ -32,18 +34,14 @@ class WebhookInfo(BaseModel):
     description="Receives updates from Telegram Bot API",
     include_in_schema=False,  # Hide from OpenAPI as it's for Telegram
 )
-async def telegram_webhook(
-    request: Request,
-    service: TelegramService = Depends(),
-):
+async def telegram_webhook(request: Request):
     """Handle incoming Telegram webhook updates.
 
     This endpoint receives updates from Telegram's servers
-    and processes them to respond to user messages.
+    and processes them using the handler-based architecture.
 
     Args:
         request: FastAPI request object.
-        service: Telegram service instance.
 
     Returns:
         Empty response (Telegram expects 200 OK).
@@ -56,32 +54,21 @@ async def telegram_webhook(
             detail="Telegram bot token not configured",
         )
 
+    bot = TelegramBot()
+
+    if not bot.is_initialized:
+        raise HTTPException(
+            status_code=500,
+            detail="Telegram bot not initialized",
+        )
+
     try:
-        # Parse the update from Telegram
         data = await request.json()
-        update = Update.de_json(data, Bot(token=settings.telegram_bot_token))
-
-        if update.message and update.message.text:
-            chat_id = update.message.chat_id
-            text = update.message.text
-
-            # Process the message
-            response_text = await service.handle_message(text, chat_id)
-
-            # Send response back to Telegram
-            bot = Bot(token=settings.telegram_bot_token)
-            await bot.send_message(
-                chat_id=chat_id,
-                text=response_text,
-                parse_mode="HTML",
-            )
-
+        await bot.process_update(data)
         return {"ok": True}
 
     except Exception as e:
-        # Log error but return 200 to Telegram to prevent retries
-        import logging
-        logging.error(f"Telegram webhook error: {e}")
+        logger.error(f"Telegram webhook error: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -117,22 +104,40 @@ async def set_webhook():
             .build()
         )
 
+    bot = TelegramBot()
+
+    if not bot.is_initialized:
+        return (
+            ResponseBuilder[WebhookInfo]()
+            .fail()
+            .add_error_message("Telegram bot not initialized")
+            .build()
+        )
+
     try:
-        bot = Bot(token=settings.telegram_bot_token)
         webhook_url = f"{settings.telegram_webhook_url}/api/v1/telegram/webhook"
+        success = await bot.set_webhook(webhook_url)
 
-        await bot.set_webhook(url=webhook_url)
+        if not success:
+            return (
+                ResponseBuilder[WebhookInfo]()
+                .fail()
+                .add_error_message("Failed to set webhook")
+                .build()
+            )
 
-        webhook_info = await bot.get_webhook_info()
+        info = await bot.get_webhook_info()
 
         return (
             ResponseBuilder[WebhookInfo]()
             .success()
             .add_data(
                 WebhookInfo(
-                    url=webhook_info.url,
-                    has_custom_certificate=webhook_info.has_custom_certificate,
-                    pending_update_count=webhook_info.pending_update_count,
+                    url=info["url"] if info else "",
+                    has_custom_certificate=(
+                        info["has_custom_certificate"] if info else False
+                    ),
+                    pending_update_count=info["pending_update_count"] if info else 0,
                 )
             )
             .add_message("Webhook set successfully")
@@ -172,16 +177,33 @@ async def delete_webhook():
             .build()
         )
 
-    try:
-        bot = Bot(token=settings.telegram_bot_token)
-        await bot.delete_webhook()
+    bot = TelegramBot()
 
+    if not bot.is_initialized:
         return (
             ResponseBuilder[None]()
-            .success()
-            .add_message("Webhook deleted successfully")
+            .fail()
+            .add_error_message("Telegram bot not initialized")
             .build()
         )
+
+    try:
+        success = await bot.delete_webhook()
+
+        if success:
+            return (
+                ResponseBuilder[None]()
+                .success()
+                .add_message("Webhook deleted successfully")
+                .build()
+            )
+        else:
+            return (
+                ResponseBuilder[None]()
+                .fail()
+                .add_error_message("Failed to delete webhook")
+                .build()
+            )
 
     except Exception as e:
         return (
@@ -214,22 +236,39 @@ async def get_webhook_info():
             .build()
         )
 
-    try:
-        bot = Bot(token=settings.telegram_bot_token)
-        webhook_info = await bot.get_webhook_info()
+    bot = TelegramBot()
 
+    if not bot.is_initialized:
         return (
             ResponseBuilder[WebhookInfo]()
-            .success()
-            .add_data(
-                WebhookInfo(
-                    url=webhook_info.url or "",
-                    has_custom_certificate=webhook_info.has_custom_certificate,
-                    pending_update_count=webhook_info.pending_update_count,
-                )
-            )
+            .fail()
+            .add_error_message("Telegram bot not initialized")
             .build()
         )
+
+    try:
+        info = await bot.get_webhook_info()
+
+        if info:
+            return (
+                ResponseBuilder[WebhookInfo]()
+                .success()
+                .add_data(
+                    WebhookInfo(
+                        url=info["url"],
+                        has_custom_certificate=info["has_custom_certificate"],
+                        pending_update_count=info["pending_update_count"],
+                    )
+                )
+                .build()
+            )
+        else:
+            return (
+                ResponseBuilder[WebhookInfo]()
+                .fail()
+                .add_error_message("Failed to get webhook info")
+                .build()
+            )
 
     except Exception as e:
         return (
@@ -246,26 +285,52 @@ async def get_webhook_info():
     summary="Test message processing",
     description="Test the bot's message processing without Telegram",
 )
-async def test_message(
-    message: TelegramMessage,
-    service: TelegramService = Depends(),
-) -> ResponseMessage[str]:
+async def test_message(message: TelegramMessage) -> ResponseMessage[str]:
     """Test message processing directly.
 
     Useful for testing bot responses without going through Telegram.
+    Note: This is a simplified test endpoint. For full testing,
+    use the actual webhook with a test update payload.
 
     Args:
         message: Test message with text.
-        service: Telegram service instance.
 
     Returns:
-        ResponseMessage with bot's response.
+        ResponseMessage with acknowledgment.
     """
-    response = await service.handle_message(message.text, message.chat_id)
+    bot = TelegramBot()
 
-    return (
-        ResponseBuilder[str]()
-        .success()
-        .add_data(response)
-        .build()
-    )
+    if not bot.is_initialized:
+        return (
+            ResponseBuilder[str]()
+            .fail()
+            .add_error_message("Telegram bot not initialized")
+            .build()
+        )
+
+    # Create a mock update payload for testing
+    test_update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 1,
+            "date": 1234567890,
+            "chat": {"id": message.chat_id, "type": "private"},
+            "text": message.text,
+        },
+    }
+
+    try:
+        await bot.process_update(test_update)
+        return (
+            ResponseBuilder[str]()
+            .success()
+            .add_data(f"Processed message: {message.text}")
+            .build()
+        )
+    except Exception as e:
+        return (
+            ResponseBuilder[str]()
+            .fail()
+            .add_error_message(f"Error processing message: {e}")
+            .build()
+        )

@@ -32,9 +32,16 @@ async def lifespan(app: FastAPI):
     # Initialize database
     await init_db()
 
+    # Initialize Telegram bot
+    from app.telegram import TelegramBot
+
+    telegram_bot = TelegramBot()
+    await telegram_bot.initialize()
+
     yield
 
     # Shutdown
+    await telegram_bot.shutdown()
     await close_db()
 
 
