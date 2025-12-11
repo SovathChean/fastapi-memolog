@@ -19,7 +19,6 @@ from app.models.schemas.task import (
     TaskResponse,
     TaskSearchRequest,
     TaskSearchResult,
-    TaskStatus,
     TaskStatusUpdate,
     TaskUpdate,
 )

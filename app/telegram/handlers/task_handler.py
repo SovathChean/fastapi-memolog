@@ -6,14 +6,13 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.models.schemas.task import (
-    TaskCreate,
     TaskPeriodType,
+    TaskResponse,
     TaskStatus,
     TaskStatusUpdate,
 )
 from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
-from app.support.embedding_support import EmbeddingSupport
 from app.support.task_support import TaskSupport
 from app.support.telegram_support import TelegramSupport
 from app.telegram.handlers.base import BaseHandler
@@ -75,7 +74,7 @@ class TaskHandler(BaseHandler):
         title = None
         for prefix in ["add task:", "create task:", "add:", "create:", "new task:"]:
             if prefix in text_lower:
-                title = text[text_lower.find(prefix) + len(prefix):].strip()
+                title = text[text_lower.find(prefix) + len(prefix) :].strip()
                 break
 
         if not title:
@@ -96,17 +95,39 @@ class TaskHandler(BaseHandler):
             )
 
     async def _handle_add(self, update: Update, args: str) -> None:
-        """Handle /add command.
+        """Handle /add command with support for multiple tasks and categories.
+
+        Supports formats:
+        - /add Work task1, task2, task3
+        - /add weekly Work task1, task2
+        - /add monthly Personal task1
+        - /add task1, task2 (defaults to daily, General)
 
         Args:
             update: Telegram update object.
-            args: Task title.
+            args: Command arguments.
         """
         if not args:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Please provide a task title. Usage: /add <title>"
+                    "Please provide task(s). Usage:\n"
+                    "/add Work task1, task2, task3\n"
+                    "/add weekly Personal task1, task2"
+                ),
+            )
+            return
+
+        # Parse the command arguments
+        period_type, category, titles = self.telegram_support.parse_add_command(args)
+
+        if not titles:
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    "No tasks found. Usage:\n"
+                    "/add Work task1, task2, task3\n"
+                    "/add weekly Personal task1, task2"
                 ),
             )
             return
@@ -114,96 +135,149 @@ class TaskHandler(BaseHandler):
         session_factory = get_session_factory()
         async with session_factory() as session:
             repository = TaskRepository(session)
-            embedding_support = EmbeddingSupport()
             task_support = TaskSupport()
             service = TaskService(
                 repository=repository,
-                embedding_support=embedding_support,
                 task_support=task_support,
             )
 
             today = date.today()
-            task_data = TaskCreate(
-                title=args,
-                period_type=TaskPeriodType.DAILY,
+
+            # Create multiple tasks
+            tasks = await service.create_multiple_tasks(
+                titles=titles,
+                category=category,
+                period_type=period_type,
                 period_date=today,
             )
 
-            task = await service.create_task(task_data)
+            # Get period stats
+            stats = await service.get_period_stats_quick(period_type, today)
 
-            await self.send_message(
-                update,
-                self.telegram_support.format_success(
-                    f"Task created: #{task.id} {task.title}"
-                ),
+            # Convert tasks to response format
+            task_responses = [TaskResponse.model_validate(task) for task in tasks]
+
+            # Format and send response
+            # Get period type string
+            period_str = (
+                period_type.value
+                if isinstance(period_type, TaskPeriodType)
+                else period_type
             )
 
+            response = self.telegram_support.format_bulk_creation_response(
+                tasks=task_responses,
+                period_type=period_str,
+                category=category,
+                total_in_period=stats["total"],
+                completed_in_period=stats["completed"],
+            )
+
+            await self.send_message(update, response)
+
     async def _handle_done(self, update: Update, args: str) -> None:
-        """Handle /done command.
+        """Handle /done command using period-based task number.
 
         Args:
             update: Telegram update object.
-            args: Task ID.
+            args: Task number in period (1-based).
         """
         if not args:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Please provide a task ID. Usage: /done <id>"
+                    "Please provide a task number. Usage: /done <number>\n"
+                    "Use /daily to see task numbers."
                 ),
             )
             return
 
         try:
-            task_id = int(args.strip())
+            task_number = int(args.strip())
         except ValueError:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Invalid task ID. Please provide a number."
+                    "Invalid task number. Please provide a number."
                 ),
+            )
+            return
+
+        if task_number < 1:
+            await self.send_message(
+                update,
+                self.telegram_support.format_error("Task number must be positive."),
             )
             return
 
         session_factory = get_session_factory()
         async with session_factory() as session:
             repository = TaskRepository(session)
-            embedding_support = EmbeddingSupport()
             task_support = TaskSupport()
             service = TaskService(
                 repository=repository,
-                embedding_support=embedding_support,
                 task_support=task_support,
             )
 
-            try:
-                status_data = TaskStatusUpdate(status=TaskStatus.COMPLETED)
-                task = await service.update_task_status(task_id, status_data)
+            today = date.today()
+            period_type = TaskPeriodType.DAILY
 
+            # Find task by period number
+            task = await service.get_task_by_period_number(
+                period_number=task_number,
+                period_type=period_type,
+                period_date=today,
+            )
+
+            if not task:
                 await self.send_message(
                     update,
-                    self.telegram_support.format_success(
-                        f"Task #{task.id} marked as completed! 🎉"
+                    self.telegram_support.format_error(
+                        f"Task #{task_number} not found today.\n"
+                        "Use /daily to see available tasks."
                     ),
                 )
+                return
+
+            try:
+                # Mark as completed using actual task ID
+                status_data = TaskStatusUpdate(status=TaskStatus.COMPLETED)
+                updated_task = await service.update_task_status(task.id, status_data)
+
+                # Get updated stats
+                stats = await service.get_period_stats_quick(period_type, today)
+
+                # Format response
+                task_response = TaskResponse.model_validate(updated_task)
+                response = self.telegram_support.format_task_done_response(
+                    task=task_response,
+                    total_in_period=stats["total"],
+                    completed_in_period=stats["completed"],
+                    period_type=period_type.value,
+                )
+
+                await self.send_message(update, response)
+
             except Exception as e:
                 await self.send_message(
                     update,
-                    self.telegram_support.format_error(f"Task not found: {e}"),
+                    self.telegram_support.format_error(f"Failed to update task: {e}"),
                 )
 
     async def _handle_pending(self, update: Update, args: str) -> None:
-        """Handle /pending command.
+        """Handle /pending command using period-based task number.
 
         Args:
             update: Telegram update object.
-            args: Task ID and reason.
+            args: Task number and optional reason.
         """
         if not args:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Please provide task ID and reason. Usage: /pending <id> <reason>"
+                    "Please provide task number and reason.\n"
+                    "Usage: /pending <number> <reason>\n"
+                    "Use /daily to see task numbers."
                 ),
             )
             return
@@ -211,13 +285,20 @@ class TaskHandler(BaseHandler):
         parts = args.split(maxsplit=1)
 
         try:
-            task_id = int(parts[0])
+            task_number = int(parts[0])
         except ValueError:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Invalid task ID. Please provide a number."
+                    "Invalid task number. Please provide a number."
                 ),
+            )
+            return
+
+        if task_number < 1:
+            await self.send_message(
+                update,
+                self.telegram_support.format_error("Task number must be positive."),
             )
             return
 
@@ -226,29 +307,51 @@ class TaskHandler(BaseHandler):
         session_factory = get_session_factory()
         async with session_factory() as session:
             repository = TaskRepository(session)
-            embedding_support = EmbeddingSupport()
             task_support = TaskSupport()
             service = TaskService(
                 repository=repository,
-                embedding_support=embedding_support,
                 task_support=task_support,
             )
 
+            today = date.today()
+            period_type = TaskPeriodType.DAILY
+
+            # Find task by period number
+            task = await service.get_task_by_period_number(
+                period_number=task_number,
+                period_type=period_type,
+                period_date=today,
+            )
+
+            if not task:
+                await self.send_message(
+                    update,
+                    self.telegram_support.format_error(
+                        f"Task #{task_number} not found today.\n"
+                        "Use /daily to see available tasks."
+                    ),
+                )
+                return
+
             try:
+                # Mark as pending using actual task ID
                 status_data = TaskStatusUpdate(
                     status=TaskStatus.PENDING,
                     pending_reason=reason,
                 )
-                task = await service.update_task_status(task_id, status_data)
+                updated_task = await service.update_task_status(task.id, status_data)
 
-                await self.send_message(
-                    update,
-                    self.telegram_support.format_success(
-                        f"Task #{task.id} marked as pending."
-                    ),
+                # Format response
+                task_response = TaskResponse.model_validate(updated_task)
+                response = self.telegram_support.format_task_pending_response(
+                    task=task_response,
+                    reason=reason,
                 )
+
+                await self.send_message(update, response)
+
             except Exception as e:
                 await self.send_message(
                     update,
-                    self.telegram_support.format_error(f"Task not found: {e}"),
+                    self.telegram_support.format_error(f"Failed to update task: {e}"),
                 )

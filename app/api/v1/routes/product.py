@@ -1,10 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Depends
+from fastapi import APIRouter, Depends, Path
 
 from app.api.v1.controllers.product_controller import ProductController
 from app.common import ResponseMessage
-from app.models.schemas.product import ProductResponse, ProductCreate, ProductUpdate
+from app.models.schemas.product import ProductCreate, ProductResponse, ProductUpdate
 
 router = APIRouter(prefix="/products", tags=["Products]"])
 

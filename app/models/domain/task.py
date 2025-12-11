@@ -33,6 +33,9 @@ class Task(BaseEntity):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="General"
+    )
     period_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

@@ -44,6 +44,13 @@ class TaskCreate(BaseSchema):
         description="Task description",
         examples=["Review the authentication changes in PR #123"],
     )
+    category: str = Field(
+        default="General",
+        min_length=1,
+        max_length=100,
+        description="Task category for grouping",
+        examples=["Work", "Personal", "Health", "Shopping"],
+    )
     period_type: TaskPeriodType = Field(
         default=TaskPeriodType.DAILY,
         description="Task period type (daily, weekly, monthly)",
@@ -68,6 +75,12 @@ class TaskUpdate(BaseSchema):
         default=None,
         max_length=2000,
         description="Task description",
+    )
+    category: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="Task category for grouping",
     )
 
 
@@ -158,6 +171,7 @@ class TaskResponse(BaseSchema):
     id: int = Field(..., description="Task ID")
     title: str = Field(..., description="Task title")
     description: str | None = Field(None, description="Task description")
+    category: str = Field(default="General", description="Task category")
     period_type: str = Field(..., description="Task period type")
     period_date: date = Field(..., description="Period date")
     status: str = Field(..., description="Task status")

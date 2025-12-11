@@ -202,7 +202,9 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         total = total_result.scalar() or 0
 
         # Completed count
-        completed_conditions = base_conditions + [Task.status == TaskStatus.COMPLETED.value]
+        completed_conditions = base_conditions + [
+            Task.status == TaskStatus.COMPLETED.value
+        ]
         completed_stmt = (
             select(func.count()).select_from(Task).where(and_(*completed_conditions))
         )
@@ -259,3 +261,84 @@ class TaskRepository(SQLAlchemyRepository[Task]):
             Updated task or None if not found.
         """
         return await self.update(task_id, embedding=embedding)
+
+    async def find_task_by_period_number(
+        self,
+        period_number: int,
+        period_type: str,
+        start_date: date,
+        end_date: date,
+    ) -> Task | None:
+        """Find task by its position (1-based) in the period.
+
+        Tasks are ordered by category (for grouping) then created_at,
+        so the number corresponds to the display order in the list.
+
+        Args:
+            period_number: 1-based position in the period list.
+            period_type: Type of period (daily, weekly, monthly).
+            start_date: Period start date.
+            end_date: Period end date.
+
+        Returns:
+            Task at the given position, or None if not found.
+        """
+        if period_number < 1:
+            return None
+
+        if isinstance(period_type, TaskPeriodType):
+            period_type = period_type.value
+
+        # Get all tasks for the period, ordered by category then created_at
+        # This matches the display order in format_task_list
+        stmt = (
+            select(Task)
+            .where(
+                and_(
+                    Task.period_type == period_type,
+                    Task.period_date >= start_date,
+                    Task.period_date <= end_date,
+                )
+            )
+            .order_by(Task.category.asc(), Task.created_at.asc())
+            .offset(period_number - 1)  # Convert 1-based to 0-based
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def count_by_period(
+        self,
+        period_type: str,
+        start_date: date,
+        end_date: date,
+        status: TaskStatus | str | None = None,
+    ) -> int:
+        """Count tasks in a period with optional status filter.
+
+        Args:
+            period_type: Type of period.
+            start_date: Period start date.
+            end_date: Period end date.
+            status: Optional status filter.
+
+        Returns:
+            Number of tasks matching the criteria.
+        """
+        if isinstance(period_type, TaskPeriodType):
+            period_type = period_type.value
+
+        conditions = [
+            Task.period_type == period_type,
+            Task.period_date >= start_date,
+            Task.period_date <= end_date,
+        ]
+
+        if status is not None:
+            if isinstance(status, TaskStatus):
+                status = status.value
+            conditions.append(Task.status == status)
+
+        stmt = select(func.count()).select_from(Task).where(and_(*conditions))
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0

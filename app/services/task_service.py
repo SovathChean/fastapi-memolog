@@ -1,6 +1,6 @@
 """Task service with business logic for memolog."""
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from fastapi import Depends
 
@@ -96,7 +96,9 @@ class TaskService(BaseService):
         try:
             await self._update_task_embedding(created_task)
         except Exception as e:
-            self.logger.warning(f"Failed to generate embedding for task {created_task.id}: {e}")
+            self.logger.warning(
+                f"Failed to generate embedding for task {created_task.id}: {e}"
+            )
 
         self.logger.info(f"Created task: {created_task.id}")
         return created_task
@@ -206,7 +208,9 @@ class TaskService(BaseService):
             try:
                 await self._update_task_embedding(updated_task)
             except Exception as e:
-                self.logger.warning(f"Failed to update embedding for task {task_id}: {e}")
+                self.logger.warning(
+                    f"Failed to update embedding for task {task_id}: {e}"
+                )
 
         self.logger.info(f"Updated task: {task_id}")
         return updated_task
@@ -234,13 +238,15 @@ class TaskService(BaseService):
             raise NotFoundError("Task", task_id)
 
         # Convert enum to string value
-        status_value = data.status.value if isinstance(data.status, TaskStatus) else data.status
+        status_value = (
+            data.status.value if isinstance(data.status, TaskStatus) else data.status
+        )
 
         update_data = {"status": status_value}
 
         # Set completed_at if marking as completed
         if status_value == TaskStatus.COMPLETED.value:
-            update_data["completed_at"] = datetime.now(timezone.utc)
+            update_data["completed_at"] = datetime.now(UTC)
             update_data["pending_reason"] = None
         else:
             update_data["completed_at"] = None
@@ -412,9 +418,7 @@ class TaskService(BaseService):
             completed_tasks=[
                 TaskResponse.model_validate(task) for task in completed_tasks
             ],
-            pending_tasks=[
-                TaskResponse.model_validate(task) for task in pending_tasks
-            ],
+            pending_tasks=[TaskResponse.model_validate(task) for task in pending_tasks],
         )
 
     async def _update_task_embedding(self, task: Task) -> None:
@@ -435,3 +439,116 @@ class TaskService(BaseService):
         # Update task with embedding
         await self.repository.update_embedding(task.id, embedding)
         self.logger.debug(f"Updated embedding for task: {task.id}")
+
+    async def create_multiple_tasks(
+        self,
+        titles: list[str],
+        category: str,
+        period_type: TaskPeriodType | str,
+        period_date: date,
+    ) -> list[Task]:
+        """Create multiple tasks at once.
+
+        Args:
+            titles: List of task titles.
+            category: Task category for all tasks.
+            period_type: Period type for all tasks.
+            period_date: Period date for all tasks.
+
+        Returns:
+            List of created tasks.
+        """
+        # Convert period_type to enum if string
+        if isinstance(period_type, str):
+            period_type = TaskPeriodType(period_type)
+
+        tasks = []
+        for title in titles:
+            task_data = TaskCreate(
+                title=title,
+                category=category,
+                period_type=period_type,
+                period_date=period_date,
+            )
+            task = await self.create_task(task_data)
+            tasks.append(task)
+
+        self.logger.info(f"Created {len(tasks)} tasks in category '{category}'")
+        return tasks
+
+    async def get_task_by_period_number(
+        self,
+        period_number: int,
+        period_type: TaskPeriodType | str,
+        period_date: date,
+    ) -> Task | None:
+        """Get task by its position (1-based) in the period.
+
+        Args:
+            period_number: 1-based position in the period list.
+            period_type: Type of period.
+            period_date: A date within the period.
+
+        Returns:
+            Task at the given position, or None if not found.
+        """
+        start_date, end_date = self.task_support.calculate_period_bounds(
+            period_type,
+            period_date,
+        )
+
+        # Convert to string for repository
+        if isinstance(period_type, TaskPeriodType):
+            period_type_str = period_type.value
+        else:
+            period_type_str = period_type
+
+        return await self.repository.find_task_by_period_number(
+            period_number,
+            period_type_str,
+            start_date,
+            end_date,
+        )
+
+    async def get_period_stats_quick(
+        self,
+        period_type: TaskPeriodType | str,
+        period_date: date,
+    ) -> dict[str, int]:
+        """Get quick statistics for a period.
+
+        Args:
+            period_type: Type of period.
+            period_date: A date within the period.
+
+        Returns:
+            Dictionary with total and completed counts.
+        """
+        start_date, end_date = self.task_support.calculate_period_bounds(
+            period_type,
+            period_date,
+        )
+
+        # Convert to string for repository
+        if isinstance(period_type, TaskPeriodType):
+            period_type_str = period_type.value
+        else:
+            period_type_str = period_type
+
+        total = await self.repository.count_by_period(
+            period_type_str,
+            start_date,
+            end_date,
+        )
+        completed = await self.repository.count_by_period(
+            period_type_str,
+            start_date,
+            end_date,
+            status=TaskStatus.COMPLETED,
+        )
+
+        return {
+            "total": total,
+            "completed": completed,
+            "pending": total - completed,
+        }

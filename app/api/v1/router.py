@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.routes import health, user, product, task, telegram
+from app.api.v1.routes import health, product, task, telegram, user
 
 router = APIRouter()
 

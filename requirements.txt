@@ -8,5 +8,10 @@ openai>=1.0.0
 pgvector>=0.3.0
 numpy>=1.24.0
 
+# LangChain
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-postgres>=0.0.12
+
 # Telegram Bot
 python-telegram-bot>=21.0
