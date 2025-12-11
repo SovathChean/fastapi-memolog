@@ -20,7 +20,7 @@ from app.models.schemas.task import (
 )
 from app.repositories.task_repository import TaskRepository
 from app.services.base import BaseService
-from app.support.embedding_support import EmbeddingSupport, get_embedding_support
+from app.support.langchain_support import LangChainSupport, get_langchain_support
 from app.support.task_support import TaskSupport
 
 
@@ -41,14 +41,20 @@ class TaskService(BaseService):
         super().__init__()
         self.repository = repository
         self.task_support = task_support
-        self._embedding_support: EmbeddingSupport | None = None
+        self._langchain_support: LangChainSupport | None = None
 
     @property
-    def embedding_support(self) -> EmbeddingSupport:
-        """Lazy-load embedding support."""
-        if self._embedding_support is None:
-            self._embedding_support = get_embedding_support()
-        return self._embedding_support
+    def langchain_support(self) -> LangChainSupport:
+        """Lazy-load LangChain support."""
+        if self._langchain_support is None:
+            self._langchain_support = get_langchain_support()
+        return self._langchain_support
+
+    # Backward compatibility alias
+    @property
+    def embedding_support(self) -> LangChainSupport:
+        """Alias for langchain_support (backward compatibility)."""
+        return self.langchain_support
 
     async def create_task(self, data: TaskCreate) -> Task:
         """Create a new task with embedding.
@@ -244,12 +250,14 @@ class TaskService(BaseService):
 
         update_data = {"status": status_value}
 
-        # Set completed_at if marking as completed
+        # Set completed_at and completion_note if marking as completed
         if status_value == TaskStatus.COMPLETED.value:
             update_data["completed_at"] = datetime.now(UTC)
             update_data["pending_reason"] = None
+            update_data["completion_note"] = data.completion_note
         else:
             update_data["completed_at"] = None
+            update_data["completion_note"] = None
             update_data["pending_reason"] = data.pending_reason
 
         updated_task = await self.repository.update(task_id, **update_data)

@@ -52,6 +52,7 @@ class Task(BaseEntity):
         nullable=True,
     )
     pending_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completion_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(
         Vector(1536),
         nullable=True,

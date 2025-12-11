@@ -97,6 +97,12 @@ class TaskStatusUpdate(BaseSchema):
         description="Reason why task is pending (required if status is pending)",
         examples=["Waiting for API finalization", "Blocked by dependency"],
     )
+    completion_note: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional note when completing a task",
+        examples=["Finally done!", "Completed ahead of schedule"],
+    )
 
     @field_validator("pending_reason")
     @classmethod
@@ -177,6 +183,7 @@ class TaskResponse(BaseSchema):
     status: str = Field(..., description="Task status")
     completed_at: datetime | None = Field(None, description="Completion timestamp")
     pending_reason: str | None = Field(None, description="Reason for pending status")
+    completion_note: str | None = Field(None, description="Note added when completing")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

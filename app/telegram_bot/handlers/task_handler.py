@@ -15,7 +15,7 @@ from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
 from app.support.task_support import TaskSupport
 from app.support.telegram_support import TelegramSupport
-from app.telegram.handlers.base import BaseHandler
+from app.telegram_bot.handlers.base import BaseHandler
 from config.database import get_session_factory
 
 
@@ -90,7 +90,51 @@ class TaskHandler(BaseHandler):
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "I couldn't understand the task. Try: /add <title>"
+                    "I couldn't understand the task. Try: /add [title]"
+                ),
+            )
+
+    async def handle_complete_natural(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """Handle natural language task completion.
+
+        Args:
+            update: Telegram update object.
+            context: Callback context.
+        """
+        import re
+
+        if not update.message or not update.message.text:
+            return
+
+        text = update.message.text
+
+        # Extract task number from natural text
+        # Patterns: "complete task 3", "done with 5", "finish #2", "mark 1 as done"
+        patterns = [
+            r"(?:complete|done|finish|mark)\s+(?:task\s+)?#?(\d+)",
+            r"#(\d+)\s+(?:is\s+)?(?:done|complete|finished)",
+            r"task\s+#?(\d+)\s+(?:is\s+)?(?:done|complete|finished)",
+        ]
+
+        task_number = None
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                task_number = int(match.group(1))
+                break
+
+        if task_number:
+            await self._handle_done(update, str(task_number))
+        else:
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    "I couldn't understand which task to complete.\n"
+                    'Try: /done [number] or "complete task 3"'
                 ),
             )
 
@@ -165,6 +209,9 @@ class TaskHandler(BaseHandler):
                 else period_type
             )
 
+            # Commit the transaction to persist tasks
+            await session.commit()
+
             response = self.telegram_support.format_bulk_creation_response(
                 tasks=task_responses,
                 period_type=period_str,
@@ -178,22 +225,29 @@ class TaskHandler(BaseHandler):
     async def _handle_done(self, update: Update, args: str) -> None:
         """Handle /done command using period-based task number.
 
+        Supports formats:
+        - /done 1
+        - /done 1 I am happy to finish this!
+
         Args:
             update: Telegram update object.
-            args: Task number in period (1-based).
+            args: Task number and optional completion note.
         """
         if not args:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Please provide a task number. Usage: /done <number>\n"
+                    "Please provide a task number. Usage: /done [number] [note]\n"
                     "Use /daily to see task numbers."
                 ),
             )
             return
 
+        # Parse task number and optional note
+        parts = args.split(maxsplit=1)
+
         try:
-            task_number = int(args.strip())
+            task_number = int(parts[0])
         except ValueError:
             await self.send_message(
                 update,
@@ -202,6 +256,8 @@ class TaskHandler(BaseHandler):
                 ),
             )
             return
+
+        completion_note = parts[1] if len(parts) > 1 else None
 
         if task_number < 1:
             await self.send_message(
@@ -240,9 +296,15 @@ class TaskHandler(BaseHandler):
                 return
 
             try:
-                # Mark as completed using actual task ID
-                status_data = TaskStatusUpdate(status=TaskStatus.COMPLETED)
+                # Mark as completed using actual task ID with optional note
+                status_data = TaskStatusUpdate(
+                    status=TaskStatus.COMPLETED,
+                    completion_note=completion_note,
+                )
                 updated_task = await service.update_task_status(task.id, status_data)
+
+                # Commit the transaction to persist changes
+                await session.commit()
 
                 # Get updated stats
                 stats = await service.get_period_stats_quick(period_type, today)
@@ -276,7 +338,7 @@ class TaskHandler(BaseHandler):
                 update,
                 self.telegram_support.format_error(
                     "Please provide task number and reason.\n"
-                    "Usage: /pending <number> <reason>\n"
+                    "Usage: /pending [number] [reason]\n"
                     "Use /daily to see task numbers."
                 ),
             )
@@ -340,6 +402,9 @@ class TaskHandler(BaseHandler):
                     pending_reason=reason,
                 )
                 updated_task = await service.update_task_status(task.id, status_data)
+
+                # Commit the transaction to persist changes
+                await session.commit()
 
                 # Format response
                 task_response = TaskResponse.model_validate(updated_task)

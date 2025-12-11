@@ -296,9 +296,16 @@ class TelegramSupport:
 
         lines = [
             f'✅ Completed: "{task.title}" [{task.category}]',
+        ]
+
+        # Add completion note if provided
+        if task.completion_note:
+            lines.append(f"📝 Note: {task.completion_note}")
+
+        lines.extend([
             "",
             f"📊 {period_label}: {pending} pending, {completed_in_period} completed",
-        ]
+        ])
 
         return "\n".join(lines)
 
@@ -441,13 +448,20 @@ class TelegramSupport:
 /monthly - Show this month's tasks
 
 ✅ Completing Tasks:
-/done <number> - Mark task as completed
-/pending <number> <reason> - Mark as pending
+/done [number] - Mark task as completed
+/pending [number] [reason] - Mark as pending
 
-🔍 Other:
-/search <query> - Search tasks
-/report <daily|weekly|monthly> - Generate report
+🔍 Search &amp; AI:
+/search [query] - Search tasks
+/ask [question] - Ask about your tasks
+/report [daily|weekly|monthly] - Generate report
 /help - Show this help message
+
+💡 Natural Language:
+Just type naturally! Examples:
+• "add buy groceries"
+• "what tasks do I have today?"
+• "complete task 3"
 
 Examples:
 • /add Work Review PR, Fix bug, Deploy
@@ -522,3 +536,85 @@ Examples:
             TelegramCommand.MONTHLY: TaskPeriodType.MONTHLY,
         }
         return mapping.get(command)
+
+    def format_enhanced_search_results(
+        self,
+        results: list[TaskSearchResult],
+        ai_summary: str = "",
+    ) -> str:
+        """Format search results with AI summary.
+
+        Args:
+            results: Search results with similarity scores.
+            ai_summary: AI-generated summary.
+
+        Returns:
+            Formatted search results string with AI summary.
+        """
+        lines = ["🔍 Search Results", ""]
+
+        # Add AI summary if available
+        if ai_summary:
+            lines.append("🤖 AI Summary:")
+            lines.append(ai_summary)
+            lines.append("")
+
+        if not results:
+            lines.append("No matching tasks found.")
+            return "\n".join(lines)
+
+        lines.append("📋 Matching Tasks:")
+        for result in results[:5]:  # Limit for Telegram display
+            score_bar = self._score_to_bar(result.similarity_score)
+            status_emoji = "✅" if result.task.status == "completed" else "⏳"
+            category = f"[{result.task.category}]" if result.task.category else ""
+            lines.append(
+                f"{score_bar} {status_emoji} {result.task.title} {category}"
+            )
+
+        if len(results) > 5:
+            lines.append(f"... and {len(results) - 5} more")
+
+        return "\n".join(lines)
+
+    def format_ai_response(
+        self,
+        response: str,
+        related_tasks: list[TaskResponse] | None = None,
+    ) -> str:
+        """Format AI conversational response.
+
+        Args:
+            response: AI-generated response text.
+            related_tasks: Optional list of related tasks to show.
+
+        Returns:
+            Formatted AI response string.
+        """
+        lines = [f"🤖 {response}"]
+
+        if related_tasks:
+            lines.append("")
+            lines.append("📋 Related Tasks:")
+            for task in related_tasks[:3]:
+                status_emoji = "✅" if task.status == "completed" else "⏳"
+                lines.append(f"  {status_emoji} {task.title} [{task.category}]")
+
+        return "\n".join(lines)
+
+    def format_greeting_response(self) -> str:
+        """Format greeting response for natural language greetings.
+
+        Returns:
+            Greeting response string.
+        """
+        return (
+            "👋 Hello! I'm your task management assistant.\n\n"
+            "I can help you with:\n"
+            "• /add - Create new tasks\n"
+            "• /daily, /weekly, /monthly - View tasks\n"
+            "• /search - Find tasks\n"
+            "• /ask - Ask me anything about your tasks\n"
+            "• /done - Mark tasks complete\n\n"
+            "Try /help for more commands!"
+        )

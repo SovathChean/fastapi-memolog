@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.common.response import ResponseBuilder, ResponseMessage
-from app.telegram import TelegramBot
+from app.telegram_bot import TelegramBot
 from config.settings import get_settings
 
 router = APIRouter(prefix="/telegram", tags=["Telegram"])

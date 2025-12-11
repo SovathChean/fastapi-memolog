@@ -114,7 +114,7 @@ class TelegramService(BaseService):
             Response message.
         """
         if not args:
-            return self.telegram_support.format_error("Please provide a task title. Usage: /add <title>")
+            return self.telegram_support.format_error("Please provide a task title. Usage: /add [title]")
 
         today = date.today()
         task_data = TaskCreate(
@@ -166,7 +166,7 @@ class TelegramService(BaseService):
             Response message.
         """
         if not args:
-            return self.telegram_support.format_error("Please provide a task ID. Usage: /done <id>")
+            return self.telegram_support.format_error("Please provide a task ID. Usage: /done [id]")
 
         try:
             task_id = int(args.strip())
@@ -191,7 +191,7 @@ class TelegramService(BaseService):
         """
         if not args:
             return self.telegram_support.format_error(
-                "Please provide task ID and reason. Usage: /pending <id> <reason>"
+                "Please provide task ID and reason. Usage: /pending [id] [reason]"
             )
 
         parts = args.split(maxsplit=1)
@@ -226,7 +226,7 @@ class TelegramService(BaseService):
         """
         if not args:
             return self.telegram_support.format_error(
-                "Please provide a search query. Usage: /search <query>"
+                "Please provide a search query. Usage: /search [query]"
             )
 
         search_request = TaskSearchRequest(query=args, limit=10)

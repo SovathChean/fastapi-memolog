@@ -1,4 +1,4 @@
-"""Handler for /search command."""
+"""Handler for /search command with RAG-enhanced results."""
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -6,20 +6,24 @@ from telegram.ext import ContextTypes
 from app.models.schemas.task import TaskSearchRequest
 from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
-from app.support.embedding_support import EmbeddingSupport
+from app.support.rag_support import RAGSupport, get_rag_support
 from app.support.task_support import TaskSupport
 from app.support.telegram_support import TelegramSupport
-from app.telegram.handlers.base import BaseHandler
+from app.telegram_bot.handlers.base import BaseHandler
 from config.database import get_session_factory
 
 
 class SearchHandler(BaseHandler):
-    """Handler for search command."""
+    """Handler for search command with RAG-enhanced results.
+
+    Provides semantic search with AI-generated summaries and insights.
+    """
 
     def __init__(self) -> None:
         """Initialize the handler."""
         super().__init__()
         self.telegram_support = TelegramSupport()
+        self.rag_support = get_rag_support()
 
     @property
     def commands(self) -> list[str]:
@@ -57,7 +61,7 @@ class SearchHandler(BaseHandler):
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Please provide a search query. Usage: /search <query>"
+                    "Please provide a search query. Usage: /search [query]"
                 ),
             )
             return
@@ -65,16 +69,41 @@ class SearchHandler(BaseHandler):
         session_factory = get_session_factory()
         async with session_factory() as session:
             repository = TaskRepository(session)
-            embedding_support = EmbeddingSupport()
             task_support = TaskSupport()
             service = TaskService(
                 repository=repository,
-                embedding_support=embedding_support,
                 task_support=task_support,
             )
 
-            search_request = TaskSearchRequest(query=query, limit=10)
-            results = await service.search_tasks(search_request)
+            try:
+                # Perform semantic search
+                search_request = TaskSearchRequest(query=query, limit=10)
+                results = await service.search_tasks(search_request)
 
-            response = self.telegram_support.format_search_results(results)
-            await self.send_message(update, response)
+                # Generate AI summary using RAG
+                ai_summary = ""
+                if results:
+                    try:
+                        ai_summary = await self.rag_support.generate_search_summary(
+                            query=query,
+                            results=results,
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Failed to generate AI summary: {e}")
+                        # Continue without AI summary
+
+                # Format enhanced response
+                response = self.telegram_support.format_enhanced_search_results(
+                    results=results,
+                    ai_summary=ai_summary,
+                )
+                await self.send_message(update, response)
+
+            except Exception as e:
+                self.logger.error(f"Search failed: {e}")
+                await self.send_message(
+                    update,
+                    self.telegram_support.format_error(
+                        "Search failed. Please try again."
+                    ),
+                )

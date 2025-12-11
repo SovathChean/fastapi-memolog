@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.support.telegram_support import TelegramSupport
-from app.telegram.handlers.base import BaseHandler
+from app.telegram_bot.handlers.base import BaseHandler
 
 
 class StartHandler(BaseHandler):

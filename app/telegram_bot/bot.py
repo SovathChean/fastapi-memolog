@@ -11,7 +11,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from config.settings import get_settings
 
 if TYPE_CHECKING:
-    from app.telegram.handlers.base import BaseHandler
+    from app.telegram_bot.handlers.base import BaseHandler
 
 
 class TelegramBot:
@@ -62,9 +62,7 @@ class TelegramBot:
 
         # Build the application
         self.application = (
-            Application.builder()
-            .token(settings.telegram_bot_token)
-            .build()
+            Application.builder().token(settings.telegram_bot_token).build()
         )
 
         # Register handlers
@@ -82,14 +80,15 @@ class TelegramBot:
             return
 
         # Import handlers here to avoid circular imports
-        from app.telegram.handlers import (
+        from app.telegram_bot.handlers import (
             ListHandler,
             ReportHandler,
             SearchHandler,
             StartHandler,
             TaskHandler,
         )
-        from app.telegram.middleware import error_handler
+        from app.telegram_bot.handlers.ask_handler import AskHandler
+        from app.telegram_bot.middleware import error_handler
 
         # Create handler instances
         self._handlers = [
@@ -98,14 +97,13 @@ class TelegramBot:
             ListHandler(),
             SearchHandler(),
             ReportHandler(),
+            AskHandler(),  # New conversational AI handler
         ]
 
         # Register command handlers
         for handler in self._handlers:
             for command in handler.commands:
-                self.application.add_handler(
-                    CommandHandler(command, handler.handle)
-                )
+                self.application.add_handler(CommandHandler(command, handler.handle))
                 self.logger.debug(f"Registered command: /{command}")
 
         # Register message handler for natural language
@@ -130,7 +128,7 @@ class TelegramBot:
     ) -> None:
         """Handle natural language text messages.
 
-        Delegates to appropriate handler based on intent detection.
+        Delegates to appropriate handler based on intent detection using IntentSupport.
 
         Args:
             update: Telegram update object.
@@ -139,50 +137,109 @@ class TelegramBot:
         if not update.message or not update.message.text:
             return
 
-        text = update.message.text.lower()
+        text = update.message.text
 
-        # Simple intent detection
-        from app.telegram.handlers import (
+        # Use IntentSupport for intelligent intent detection
+        from app.support.intent_support import IntentSupport, MessageIntent
+        from app.telegram_bot.handlers import (
             ListHandler,
             ReportHandler,
             SearchHandler,
             TaskHandler,
         )
+        from app.telegram_bot.handlers.ask_handler import AskHandler
 
-        # Check for add intent
-        if any(word in text for word in ["add", "create", "new task"]):
+        intent_support = IntentSupport()
+        intent = intent_support.detect_intent(text)
+
+        # Route based on detected intent
+        if intent == MessageIntent.ADD_TASK:
             handler = TaskHandler()
             await handler.handle_add_natural(update, context)
             return
 
-        # Check for list intent
-        if any(word in text for word in ["today", "daily", "today's"]):
-            handler = ListHandler()
-            await handler.handle_period(update, context, "daily")
+        if intent == MessageIntent.COMPLETE_TASK:
+            # Extract task number and complete it
+            handler = TaskHandler()
+            await handler.handle_complete_natural(update, context)
             return
 
-        if any(word in text for word in ["week", "weekly", "this week"]):
+        if intent == MessageIntent.LIST_TASKS:
             handler = ListHandler()
-            await handler.handle_period(update, context, "weekly")
-            return
-
-        if any(word in text for word in ["month", "monthly", "this month"]):
-            handler = ListHandler()
-            await handler.handle_period(update, context, "monthly")
-            return
-
-        # Check for report intent
-        if any(word in text for word in ["report", "summary", "progress", "status"]):
-            handler = ReportHandler()
-            period = "daily"
-            if "week" in text:
+            # Determine period from text
+            text_lower = text.lower()
+            if any(word in text_lower for word in ["week", "weekly"]):
                 period = "weekly"
-            elif "month" in text:
+            elif any(word in text_lower for word in ["month", "monthly"]):
+                period = "monthly"
+            else:
+                period = "daily"
+            await handler.handle_period(update, context, period)
+            return
+
+        if intent == MessageIntent.REPORT:
+            handler = ReportHandler()
+            text_lower = text.lower()
+            period = "daily"
+            if "week" in text_lower:
+                period = "weekly"
+            elif "month" in text_lower:
                 period = "monthly"
             await handler.handle_report(update, context, period)
             return
 
-        # Default: treat as search
+        if intent == MessageIntent.QUESTION:
+            # Use AskHandler for conversational AI responses
+            handler = AskHandler()
+            await handler.handle_question(update, context, text)
+            return
+
+        if intent == MessageIntent.CLEAR_HISTORY:
+            handler = AskHandler()
+            await handler.handle_clear_history(update, context)
+            return
+
+        if intent == MessageIntent.GREETING:
+            from app.support.telegram_support import TelegramSupport
+
+            telegram_support = TelegramSupport()
+            await update.message.reply_text(
+                telegram_support.format_greeting_response(),
+                parse_mode="HTML",
+            )
+            return
+
+        if intent == MessageIntent.HELP:
+            # Show help message
+            help_text = (
+                "🤖 <b>Available Commands</b>\n\n"
+                "📝 <b>Task Management</b>\n"
+                "/task add [title] - Add a new task\n"
+                "/task complete [n] - Complete task #n\n"
+                "/list [daily|weekly|monthly] - List tasks\n\n"
+                "🔍 <b>Search & AI</b>\n"
+                "/search [query] - Search tasks\n"
+                "/ask [question] - Ask about your tasks\n\n"
+                "📊 <b>Reports</b>\n"
+                "/report [daily|weekly|monthly] - Get report\n\n"
+                "💡 <b>Natural Language</b>\n"
+                "You can also just type naturally!\n"
+                "Examples:\n"
+                '• "add buy groceries"\n'
+                '• "what tasks do I have today?"\n'
+                '• "complete task 3"\n'
+            )
+            await update.message.reply_text(help_text, parse_mode="HTML")
+            return
+
+        if intent == MessageIntent.SEARCH:
+            # Extract search query and perform search
+            handler = SearchHandler()
+            query = intent_support.extract_search_query(text) or text
+            await handler.handle_search(update, context, query)
+            return
+
+        # Default: treat as search for unknown intents
         handler = SearchHandler()
         await handler.handle_search(update, context, text)
 

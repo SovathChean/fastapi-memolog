@@ -11,7 +11,7 @@ from app.services.task_service import TaskService
 from app.support.embedding_support import EmbeddingSupport
 from app.support.task_support import TaskSupport
 from app.support.telegram_support import TelegramSupport
-from app.telegram.handlers.base import BaseHandler
+from app.telegram_bot.handlers.base import BaseHandler
 from config.database import get_session_factory
 
 

@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # Vector Search Settings
     search_top_k: int = 5
 
+    # LangChain/RAG Settings
+    rag_temperature: float = 0.7
+    rag_max_tokens: int = 500
+    conversation_window_size: int = 10
+    search_result_context_limit: int = 5
+
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""

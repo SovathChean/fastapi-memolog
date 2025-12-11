@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     # Initialize Telegram bot
-    from app.telegram import TelegramBot
+    from app.telegram_bot import TelegramBot
 
     telegram_bot = TelegramBot()
     await telegram_bot.initialize()
