@@ -2,13 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.routes import health, product, task, telegram, user
+from app.api.v1.routes import health, task, telegram
 
 router = APIRouter()
 
 # Include all v1 routes
 router.include_router(health.router)
-router.include_router(user.router)
-router.include_router(product.router)
 router.include_router(task.router)
 router.include_router(telegram.router)
