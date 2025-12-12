@@ -178,6 +178,9 @@ class TaskHandler(BaseHandler):
 
         session_factory = get_session_factory()
         async with session_factory() as session:
+            # Get or create user
+            user = await self.get_or_create_user(update, session)
+
             repository = TaskRepository(session)
             task_support = TaskSupport()
             service = TaskService(
@@ -187,16 +190,17 @@ class TaskHandler(BaseHandler):
 
             today = date.today()
 
-            # Create multiple tasks
+            # Create multiple tasks with user_id
             tasks = await service.create_multiple_tasks(
+                user_id=user.id,
                 titles=titles,
                 category=category,
                 period_type=period_type,
                 period_date=today,
             )
 
-            # Get period stats
-            stats = await service.get_period_stats_quick(period_type, today)
+            # Get period stats for this user
+            stats = await service.get_period_stats_quick(user.id, period_type, today)
 
             # Convert tasks to response format
             task_responses = [TaskResponse.model_validate(task) for task in tasks]
@@ -226,28 +230,52 @@ class TaskHandler(BaseHandler):
         """Handle /done command using period-based task number.
 
         Supports formats:
-        - /done 1
-        - /done 1 I am happy to finish this!
+        - /done 1                      (daily task #1)
+        - /done 1 note here            (daily task #1 with note)
+        - /done weekly 1               (weekly task #1)
+        - /done weekly 1 note here     (weekly task #1 with note)
+        - /done monthly 1              (monthly task #1)
 
         Args:
             update: Telegram update object.
-            args: Task number and optional completion note.
+            args: Optional period, task number, and optional completion note.
         """
         if not args:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
-                    "Please provide a task number. Usage: /done [number] [note]\n"
-                    "Use /daily to see task numbers."
+                    "Please provide a task number.\n"
+                    "Usage: /done [number] [note]\n"
+                    "       /done weekly [number] [note]\n"
+                    "       /done monthly [number] [note]"
                 ),
             )
             return
 
-        # Parse task number and optional note
-        parts = args.split(maxsplit=1)
+        # Parse period type, task number, and optional note
+        parts = args.split()
+        period_type = TaskPeriodType.DAILY
+        task_number_idx = 0
+
+        # Check if first part is a period type
+        if parts[0].lower() in ("weekly", "monthly"):
+            try:
+                period_type = TaskPeriodType(parts[0].lower())
+                task_number_idx = 1
+            except ValueError:
+                pass
+
+        if task_number_idx >= len(parts):
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    "Please provide a task number after the period type."
+                ),
+            )
+            return
 
         try:
-            task_number = int(parts[0])
+            task_number = int(parts[task_number_idx])
         except ValueError:
             await self.send_message(
                 update,
@@ -257,7 +285,9 @@ class TaskHandler(BaseHandler):
             )
             return
 
-        completion_note = parts[1] if len(parts) > 1 else None
+        # Extract completion note (everything after task number)
+        note_parts = parts[task_number_idx + 1:]
+        completion_note = " ".join(note_parts) if note_parts else None
 
         if task_number < 1:
             await self.send_message(
@@ -268,6 +298,9 @@ class TaskHandler(BaseHandler):
 
         session_factory = get_session_factory()
         async with session_factory() as session:
+            # Get or create user
+            user = await self.get_or_create_user(update, session)
+
             repository = TaskRepository(session)
             task_support = TaskSupport()
             service = TaskService(
@@ -276,21 +309,24 @@ class TaskHandler(BaseHandler):
             )
 
             today = date.today()
-            period_type = TaskPeriodType.DAILY
 
-            # Find task by period number
+            # Find task by period number for this user
             task = await service.get_task_by_period_number(
+                user_id=user.id,
                 period_number=task_number,
                 period_type=period_type,
                 period_date=today,
             )
 
+            period_label = period_type.value
+            list_cmd = f"/{period_type.value}"
+
             if not task:
                 await self.send_message(
                     update,
                     self.telegram_support.format_error(
-                        f"Task #{task_number} not found today.\n"
-                        "Use /daily to see available tasks."
+                        f"Task #{task_number} not found in {period_label} tasks.\n"
+                        f"Use {list_cmd} to see available tasks."
                     ),
                 )
                 return
@@ -306,8 +342,10 @@ class TaskHandler(BaseHandler):
                 # Commit the transaction to persist changes
                 await session.commit()
 
-                # Get updated stats
-                stats = await service.get_period_stats_quick(period_type, today)
+                # Get updated stats for this user
+                stats = await service.get_period_stats_quick(
+                    user.id, period_type, today
+                )
 
                 # Format response
                 task_response = TaskResponse.model_validate(updated_task)
@@ -329,9 +367,14 @@ class TaskHandler(BaseHandler):
     async def _handle_pending(self, update: Update, args: str) -> None:
         """Handle /pending command using period-based task number.
 
+        Supports formats:
+        - /pending 1 reason             (daily task #1)
+        - /pending weekly 1 reason      (weekly task #1)
+        - /pending monthly 1 reason     (monthly task #1)
+
         Args:
             update: Telegram update object.
-            args: Task number and optional reason.
+            args: Optional period, task number, and optional reason.
         """
         if not args:
             await self.send_message(
@@ -339,15 +382,36 @@ class TaskHandler(BaseHandler):
                 self.telegram_support.format_error(
                     "Please provide task number and reason.\n"
                     "Usage: /pending [number] [reason]\n"
-                    "Use /daily to see task numbers."
+                    "       /pending weekly [number] [reason]\n"
+                    "       /pending monthly [number] [reason]"
                 ),
             )
             return
 
-        parts = args.split(maxsplit=1)
+        # Parse period type, task number, and optional reason
+        parts = args.split()
+        period_type = TaskPeriodType.DAILY
+        task_number_idx = 0
+
+        # Check if first part is a period type
+        if parts[0].lower() in ("weekly", "monthly"):
+            try:
+                period_type = TaskPeriodType(parts[0].lower())
+                task_number_idx = 1
+            except ValueError:
+                pass
+
+        if task_number_idx >= len(parts):
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    "Please provide a task number after the period type."
+                ),
+            )
+            return
 
         try:
-            task_number = int(parts[0])
+            task_number = int(parts[task_number_idx])
         except ValueError:
             await self.send_message(
                 update,
@@ -364,10 +428,15 @@ class TaskHandler(BaseHandler):
             )
             return
 
-        reason = parts[1] if len(parts) > 1 else None
+        # Extract reason (everything after task number)
+        reason_parts = parts[task_number_idx + 1:]
+        reason = " ".join(reason_parts) if reason_parts else None
 
         session_factory = get_session_factory()
         async with session_factory() as session:
+            # Get or create user
+            user = await self.get_or_create_user(update, session)
+
             repository = TaskRepository(session)
             task_support = TaskSupport()
             service = TaskService(
@@ -376,21 +445,24 @@ class TaskHandler(BaseHandler):
             )
 
             today = date.today()
-            period_type = TaskPeriodType.DAILY
 
-            # Find task by period number
+            # Find task by period number for this user
             task = await service.get_task_by_period_number(
+                user_id=user.id,
                 period_number=task_number,
                 period_type=period_type,
                 period_date=today,
             )
 
+            period_label = period_type.value
+            list_cmd = f"/{period_type.value}"
+
             if not task:
                 await self.send_message(
                     update,
                     self.telegram_support.format_error(
-                        f"Task #{task_number} not found today.\n"
-                        "Use /daily to see available tasks."
+                        f"Task #{task_number} not found in {period_label} tasks.\n"
+                        f"Use {list_cmd} to see available tasks."
                     ),
                 )
                 return

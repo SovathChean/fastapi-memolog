@@ -66,6 +66,9 @@ class ListHandler(BaseHandler):
 
         session_factory = get_session_factory()
         async with session_factory() as session:
+            # Get or create user
+            user = await self.get_or_create_user(update, session)
+
             repository = TaskRepository(session)
             service = TaskService(
                 repository=repository,
@@ -73,7 +76,7 @@ class ListHandler(BaseHandler):
             )
 
             today = date.today()
-            tasks = await service.get_tasks_by_period(period_type, today)
+            tasks = await service.get_tasks_by_period(user.id, period_type, today)
 
             period_label = self.task_support.get_period_label(period_type, today)
             title = f"{period_type.value.title()} Tasks ({period_label})"

@@ -29,6 +29,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
     async def find_by_period(
         self,
+        user_id: int,
         period_type: TaskPeriodType | str,
         start_date: date,
         end_date: date,
@@ -37,6 +38,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         """Get tasks for a specific period.
 
         Args:
+            user_id: User ID to filter by.
             period_type: Type of period (daily, weekly, monthly).
             start_date: Period start date.
             end_date: Period end date.
@@ -49,6 +51,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
             period_type = period_type.value
 
         conditions = [
+            Task.user_id == user_id,
             Task.period_type == period_type,
             Task.period_date >= start_date,
             Task.period_date <= end_date,
@@ -69,6 +72,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
     async def find_by_date_range(
         self,
+        user_id: int,
         start_date: date,
         end_date: date,
         period_type: TaskPeriodType | str | None = None,
@@ -77,6 +81,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         """Get tasks within a date range.
 
         Args:
+            user_id: User ID to filter by.
             start_date: Range start date.
             end_date: Range end date.
             period_type: Optional period type filter.
@@ -86,6 +91,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
             List of tasks in the date range.
         """
         conditions = [
+            Task.user_id == user_id,
             Task.period_date >= start_date,
             Task.period_date <= end_date,
         ]
@@ -110,6 +116,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
     async def semantic_search(
         self,
+        user_id: int,
         query_embedding: list[float],
         limit: int = 10,
         period_type: TaskPeriodType | str | None = None,
@@ -122,6 +129,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         Uses pgvector's cosine distance for similarity search.
 
         Args:
+            user_id: User ID to filter by.
             query_embedding: Query vector embedding.
             limit: Maximum results to return.
             period_type: Optional period type filter.
@@ -134,7 +142,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
             Similarity score is 0-1, higher is more similar.
         """
         # Build filter conditions
-        conditions = [Task.embedding.isnot(None)]
+        conditions = [Task.user_id == user_id, Task.embedding.isnot(None)]
 
         if period_type is not None:
             if isinstance(period_type, TaskPeriodType):
@@ -171,6 +179,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
     async def get_period_stats(
         self,
+        user_id: int,
         period_type: TaskPeriodType | str,
         start_date: date,
         end_date: date,
@@ -178,6 +187,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         """Get statistics for a period.
 
         Args:
+            user_id: User ID to filter by.
             period_type: Type of period.
             start_date: Period start date.
             end_date: Period end date.
@@ -189,6 +199,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
             period_type = period_type.value
 
         base_conditions = [
+            Task.user_id == user_id,
             Task.period_type == period_type,
             Task.period_date >= start_date,
             Task.period_date <= end_date,
@@ -222,12 +233,14 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
     async def find_by_status(
         self,
+        user_id: int,
         status: TaskStatus | str,
         limit: int = 100,
     ) -> list[Task]:
         """Get tasks by status.
 
         Args:
+            user_id: User ID to filter by.
             status: Task status to filter by.
             limit: Maximum results.
 
@@ -239,7 +252,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
         stmt = (
             select(Task)
-            .where(Task.status == status)
+            .where(and_(Task.user_id == user_id, Task.status == status))
             .order_by(Task.period_date.desc(), Task.created_at.desc())
             .limit(limit)
         )
@@ -264,6 +277,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
     async def find_task_by_period_number(
         self,
+        user_id: int,
         period_number: int,
         period_type: str,
         start_date: date,
@@ -275,6 +289,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         so the number corresponds to the display order in the list.
 
         Args:
+            user_id: User ID to filter by.
             period_number: 1-based position in the period list.
             period_type: Type of period (daily, weekly, monthly).
             start_date: Period start date.
@@ -295,6 +310,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
             select(Task)
             .where(
                 and_(
+                    Task.user_id == user_id,
                     Task.period_type == period_type,
                     Task.period_date >= start_date,
                     Task.period_date <= end_date,
@@ -309,6 +325,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
 
     async def count_by_period(
         self,
+        user_id: int,
         period_type: str,
         start_date: date,
         end_date: date,
@@ -317,6 +334,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         """Count tasks in a period with optional status filter.
 
         Args:
+            user_id: User ID to filter by.
             period_type: Type of period.
             start_date: Period start date.
             end_date: Period end date.
@@ -329,6 +347,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
             period_type = period_type.value
 
         conditions = [
+            Task.user_id == user_id,
             Task.period_type == period_type,
             Task.period_date >= start_date,
             Task.period_date <= end_date,

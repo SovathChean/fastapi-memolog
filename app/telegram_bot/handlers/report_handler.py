@@ -8,7 +8,6 @@ from telegram.ext import ContextTypes
 from app.models.schemas.task import TaskPeriodType, TaskReportRequest
 from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
-from app.support.embedding_support import EmbeddingSupport
 from app.support.task_support import TaskSupport
 from app.support.telegram_support import TelegramSupport
 from app.telegram_bot.handlers.base import BaseHandler
@@ -70,11 +69,12 @@ class ReportHandler(BaseHandler):
 
         session_factory = get_session_factory()
         async with session_factory() as session:
+            # Get or create user
+            user = await self.get_or_create_user(update, session)
+
             repository = TaskRepository(session)
-            embedding_support = EmbeddingSupport()
             service = TaskService(
                 repository=repository,
-                embedding_support=embedding_support,
                 task_support=self.task_support,
             )
 
@@ -89,7 +89,7 @@ class ReportHandler(BaseHandler):
                 start_date=start_date,
                 end_date=end_date,
             )
-            report = await service.generate_report(report_request)
+            report = await service.generate_report(user.id, report_request)
 
             response = self.telegram_support.format_report(
                 period_type=report.period_type,

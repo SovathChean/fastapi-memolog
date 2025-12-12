@@ -3,8 +3,13 @@
 import logging
 from abc import ABC, abstractmethod
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import Update
 from telegram.ext import ContextTypes
+
+from app.models.domain.telegram_user import TelegramUser
+from app.repositories.telegram_user_repository import TelegramUserRepository
+from app.services.telegram_user_service import TelegramUserService
 
 
 class BaseHandler(ABC):
@@ -89,3 +94,44 @@ class BaseHandler(ABC):
             if text.startswith("/"):
                 return text.split()[0][1:].lower()
         return ""
+
+    async def get_or_create_user(
+        self,
+        update: Update,
+        session: AsyncSession,
+    ) -> TelegramUser:
+        """Get or create a TelegramUser from the update.
+
+        This should be called at the start of each handler to ensure
+        we have a valid user record for the current Telegram user.
+
+        Args:
+            update: Telegram update object.
+            session: Database session.
+
+        Returns:
+            TelegramUser instance.
+
+        Raises:
+            ValueError: If no effective user in update.
+        """
+        if not update.effective_user:
+            raise ValueError("No effective user in update")
+
+        telegram_user = update.effective_user
+        repository = TelegramUserRepository(session)
+        service = TelegramUserService(repository)
+
+        user, created = await service.get_or_create_user(
+            telegram_id=telegram_user.id,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+            username=telegram_user.username,
+            first_name=telegram_user.first_name or "User",
+            last_name=telegram_user.last_name,
+            language_code=telegram_user.language_code,
+        )
+
+        if created:
+            self.logger.info(f"Created new user: {user.telegram_id}")
+
+        return user

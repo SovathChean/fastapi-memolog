@@ -286,12 +286,14 @@ class TaskService(BaseService):
 
     async def get_tasks_by_period(
         self,
+        user_id: int,
         period_type: TaskPeriodType | str,
         period_date: date,
     ) -> list[Task]:
         """Get tasks for a specific period.
 
         Args:
+            user_id: User ID to filter by.
             period_type: Type of period.
             period_date: A date within the period.
 
@@ -303,6 +305,7 @@ class TaskService(BaseService):
             period_date,
         )
         return await self.repository.find_by_period(
+            user_id,
             period_type,
             start_date,
             end_date,
@@ -310,11 +313,13 @@ class TaskService(BaseService):
 
     async def search_tasks(
         self,
+        user_id: int,
         request: TaskSearchRequest,
     ) -> list[TaskSearchResult]:
         """Search tasks using semantic similarity.
 
         Args:
+            user_id: User ID to filter by.
             request: Search request with query and filters.
 
         Returns:
@@ -348,6 +353,7 @@ class TaskService(BaseService):
 
         # Perform semantic search
         results = await self.repository.semantic_search(
+            user_id=user_id,
             query_embedding=query_embedding,
             limit=request.limit,
             period_type=period_type,
@@ -367,11 +373,13 @@ class TaskService(BaseService):
 
     async def generate_report(
         self,
+        user_id: int,
         request: TaskReportRequest,
     ) -> TaskReportResponse:
         """Generate a task report for a period.
 
         Args:
+            user_id: User ID to filter by.
             request: Report request with period and date range.
 
         Returns:
@@ -386,6 +394,7 @@ class TaskService(BaseService):
 
         # Get statistics
         stats = await self.repository.get_period_stats(
+            user_id,
             period_type,
             request.start_date,
             request.end_date,
@@ -393,6 +402,7 @@ class TaskService(BaseService):
 
         # Get completed tasks
         completed_tasks = await self.repository.find_by_period(
+            user_id,
             period_type,
             request.start_date,
             request.end_date,
@@ -401,6 +411,7 @@ class TaskService(BaseService):
 
         # Get pending tasks
         pending_tasks = await self.repository.find_by_period(
+            user_id,
             period_type,
             request.start_date,
             request.end_date,
@@ -450,6 +461,7 @@ class TaskService(BaseService):
 
     async def create_multiple_tasks(
         self,
+        user_id: int,
         titles: list[str],
         category: str,
         period_type: TaskPeriodType | str,
@@ -458,6 +470,7 @@ class TaskService(BaseService):
         """Create multiple tasks at once.
 
         Args:
+            user_id: User ID who owns these tasks.
             titles: List of task titles.
             category: Task category for all tasks.
             period_type: Period type for all tasks.
@@ -473,6 +486,7 @@ class TaskService(BaseService):
         tasks = []
         for title in titles:
             task_data = TaskCreate(
+                user_id=user_id,
                 title=title,
                 category=category,
                 period_type=period_type,
@@ -486,6 +500,7 @@ class TaskService(BaseService):
 
     async def get_task_by_period_number(
         self,
+        user_id: int,
         period_number: int,
         period_type: TaskPeriodType | str,
         period_date: date,
@@ -493,6 +508,7 @@ class TaskService(BaseService):
         """Get task by its position (1-based) in the period.
 
         Args:
+            user_id: User ID to filter by.
             period_number: 1-based position in the period list.
             period_type: Type of period.
             period_date: A date within the period.
@@ -512,6 +528,7 @@ class TaskService(BaseService):
             period_type_str = period_type
 
         return await self.repository.find_task_by_period_number(
+            user_id,
             period_number,
             period_type_str,
             start_date,
@@ -520,12 +537,14 @@ class TaskService(BaseService):
 
     async def get_period_stats_quick(
         self,
+        user_id: int,
         period_type: TaskPeriodType | str,
         period_date: date,
     ) -> dict[str, int]:
         """Get quick statistics for a period.
 
         Args:
+            user_id: User ID to filter by.
             period_type: Type of period.
             period_date: A date within the period.
 
@@ -544,11 +563,13 @@ class TaskService(BaseService):
             period_type_str = period_type
 
         total = await self.repository.count_by_period(
+            user_id,
             period_type_str,
             start_date,
             end_date,
         )
         completed = await self.repository.count_by_period(
+            user_id,
             period_type_str,
             start_date,
             end_date,

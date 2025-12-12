@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 from app.models.schemas.task import TaskSearchRequest
 from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
-from app.support.rag_support import RAGSupport, get_rag_support
+from app.support.rag_support import get_rag_support
 from app.support.task_support import TaskSupport
 from app.support.telegram_support import TelegramSupport
 from app.telegram_bot.handlers.base import BaseHandler
@@ -68,6 +68,9 @@ class SearchHandler(BaseHandler):
 
         session_factory = get_session_factory()
         async with session_factory() as session:
+            # Get or create user
+            user = await self.get_or_create_user(update, session)
+
             repository = TaskRepository(session)
             task_support = TaskSupport()
             service = TaskService(
@@ -76,9 +79,9 @@ class SearchHandler(BaseHandler):
             )
 
             try:
-                # Perform semantic search
+                # Perform semantic search for this user
                 search_request = TaskSearchRequest(query=query, limit=10)
-                results = await service.search_tasks(search_request)
+                results = await service.search_tasks(user.id, search_request)
 
                 # Generate AI summary using RAG
                 ai_summary = ""

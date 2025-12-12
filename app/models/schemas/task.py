@@ -31,6 +31,10 @@ class TaskStatus(str, Enum):
 class TaskCreate(BaseSchema):
     """Request model for creating a task."""
 
+    user_id: int = Field(
+        ...,
+        description="ID of the user who owns this task",
+    )
     title: str = Field(
         ...,
         min_length=1,
@@ -175,6 +179,7 @@ class TaskResponse(BaseSchema):
     """Response model for task endpoints."""
 
     id: int = Field(..., description="Task ID")
+    user_id: int = Field(..., description="Owner user ID")
     title: str = Field(..., description="Task title")
     description: str | None = Field(None, description="Task description")
     category: str = Field(default="General", description="Task category")
