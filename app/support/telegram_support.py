@@ -2,10 +2,15 @@
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from enum import Enum
 
-from app.models.schemas.task import TaskPeriodType, TaskResponse, TaskSearchResult
+from app.models.schemas.task import (
+    TaskPeriodType,
+    TaskPriority,
+    TaskResponse,
+    TaskSearchResult,
+)
 
 
 class TelegramCommand(str, Enum):
@@ -32,6 +37,18 @@ class ParsedCommand:
     is_natural_text: bool = False
 
 
+@dataclass
+class ParsedTaskDetails:
+    """Parsed task details from natural language input."""
+
+    title: str
+    priority: TaskPriority = TaskPriority.NORMAL
+    duration_minutes: int | None = None
+    scheduled_time: time | None = None
+    scheduled_end_time: time | None = None
+    scheduled_date: date | None = None
+
+
 class TelegramSupport:
     """Support class for Telegram bot operations.
 
@@ -40,6 +57,30 @@ class TelegramSupport:
 
     COMMAND_PATTERN = re.compile(r"^(/\w+)\s*(.*)?$", re.DOTALL)
     PERIOD_KEYWORDS = {"daily", "weekly", "monthly"}
+    PRIORITY_KEYWORDS = {"low", "high"}  # normal is default
+
+    # Regex patterns for parsing task details
+    # Time pattern: "at 8pm", "at 20:00", "at 8:30am"
+    TIME_PATTERN = re.compile(
+        r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+        re.IGNORECASE,
+    )
+    # Time range pattern: "at 8pm to 12am", "at 20:00 to 23:00"
+    TIME_RANGE_PATTERN = re.compile(
+        r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+to\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+        re.IGNORECASE,
+    )
+    # Duration pattern: "30m", "2h", "1h30m", "30min", "2hours", "1hour30min"
+    DURATION_PATTERN = re.compile(
+        r"\b(\d+)\s*h(?:ours?|r)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?|\b(\d+)\s*m(?:in(?:utes?)?)?\b",
+        re.IGNORECASE,
+    )
+    # Date pattern: "tomorrow", "on 2024-01-20", "on Jan 20"
+    DATE_ON_PATTERN = re.compile(
+        r"\bon\s+(\d{4}-\d{2}-\d{2}|\w+\s+\d{1,2}(?:,?\s+\d{4})?)\b",
+        re.IGNORECASE,
+    )
+    TOMORROW_PATTERN = re.compile(r"\btomorrow\b", re.IGNORECASE)
 
     def parse_add_command(self, text: str) -> tuple[TaskPeriodType, str, list[str]]:
         """Parse /add command arguments to extract period, category, and tasks.
@@ -94,6 +135,183 @@ class TelegramSupport:
 
         return period_type, category, tasks
 
+    def parse_task_details(self, task_text: str) -> ParsedTaskDetails:
+        """Parse task text to extract title, priority, time, duration, date.
+
+        Extracts scheduling information from natural language task input.
+
+        Args:
+            task_text: Raw task text (e.g., "meeting high at 2pm 1h tomorrow").
+
+        Returns:
+            ParsedTaskDetails with extracted information.
+        """
+        if not task_text or not task_text.strip():
+            return ParsedTaskDetails(title="")
+
+        text = task_text.strip()
+        remaining = text
+
+        # Extract priority (high, low - normal is default)
+        priority = TaskPriority.NORMAL
+        for kw in self.PRIORITY_KEYWORDS:
+            pattern = re.compile(rf"\b{kw}\b", re.IGNORECASE)
+            if pattern.search(remaining):
+                priority = TaskPriority(kw)
+                remaining = pattern.sub("", remaining)
+                break
+
+        # Extract time range first (at X to Y)
+        scheduled_time = None
+        scheduled_end_time = None
+        time_range_match = self.TIME_RANGE_PATTERN.search(remaining)
+        if time_range_match:
+            scheduled_time = self._parse_time_match(
+                time_range_match.group(1),
+                time_range_match.group(2),
+                time_range_match.group(3),
+            )
+            scheduled_end_time = self._parse_time_match(
+                time_range_match.group(4),
+                time_range_match.group(5),
+                time_range_match.group(6),
+            )
+            remaining = self.TIME_RANGE_PATTERN.sub("", remaining)
+        else:
+            # Extract single time (at X)
+            time_match = self.TIME_PATTERN.search(remaining)
+            if time_match:
+                scheduled_time = self._parse_time_match(
+                    time_match.group(1),
+                    time_match.group(2),
+                    time_match.group(3),
+                )
+                remaining = self.TIME_PATTERN.sub("", remaining)
+
+        # Extract duration (e.g., 2h, 30m, 1h30m)
+        duration_minutes = None
+        duration_match = self.DURATION_PATTERN.search(remaining)
+        if duration_match:
+            duration_minutes = self._parse_duration_match(duration_match)
+            remaining = self.DURATION_PATTERN.sub("", remaining)
+
+        # Extract date
+        scheduled_date = None
+        if self.TOMORROW_PATTERN.search(remaining):
+            scheduled_date = date.today() + timedelta(days=1)
+            remaining = self.TOMORROW_PATTERN.sub("", remaining)
+        else:
+            date_match = self.DATE_ON_PATTERN.search(remaining)
+            if date_match:
+                scheduled_date = self._parse_date_match(date_match.group(1))
+                remaining = self.DATE_ON_PATTERN.sub("", remaining)
+
+        # Clean up remaining text as title
+        title = " ".join(remaining.split()).strip()
+
+        return ParsedTaskDetails(
+            title=title,
+            priority=priority,
+            duration_minutes=duration_minutes,
+            scheduled_time=scheduled_time,
+            scheduled_end_time=scheduled_end_time,
+            scheduled_date=scheduled_date,
+        )
+
+    def _parse_time_match(
+        self,
+        hour_str: str,
+        minute_str: str | None,
+        ampm: str | None,
+    ) -> time | None:
+        """Parse time components from regex match.
+
+        Args:
+            hour_str: Hour string (e.g., "8", "20").
+            minute_str: Minute string or None (e.g., "30").
+            ampm: AM/PM indicator or None.
+
+        Returns:
+            time object or None if parsing fails.
+        """
+        try:
+            hour = int(hour_str)
+            minute = int(minute_str) if minute_str else 0
+
+            # Handle AM/PM conversion
+            if ampm:
+                ampm_lower = ampm.lower()
+                if ampm_lower == "pm" and hour < 12:
+                    hour += 12
+                elif ampm_lower == "am" and hour == 12:
+                    hour = 0
+
+            # Validate hour/minute
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                return time(hour=hour, minute=minute)
+        except (ValueError, TypeError):
+            pass
+        return None
+
+    def _parse_duration_match(self, match: re.Match) -> int | None:
+        """Parse duration from regex match.
+
+        Args:
+            match: Regex match object with duration groups.
+
+        Returns:
+            Duration in minutes or None.
+        """
+        try:
+            hours = int(match.group(1)) if match.group(1) else 0
+            minutes_from_hours = int(match.group(2)) if match.group(2) else 0
+            minutes_only = int(match.group(3)) if match.group(3) else 0
+
+            if hours > 0 or minutes_from_hours > 0:
+                return hours * 60 + minutes_from_hours
+            elif minutes_only > 0:
+                return minutes_only
+        except (ValueError, TypeError):
+            pass
+        return None
+
+    def _parse_date_match(self, date_str: str) -> date | None:
+        """Parse date from string.
+
+        Args:
+            date_str: Date string (e.g., "2024-01-20", "Jan 20").
+
+        Returns:
+            date object or None if parsing fails.
+        """
+        # Try ISO format first (2024-01-20)
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+        # Try "Jan 20" format
+        try:
+            parsed = datetime.strptime(date_str, "%b %d")
+            return parsed.replace(year=date.today().year).date()
+        except ValueError:
+            pass
+
+        # Try "January 20" format
+        try:
+            parsed = datetime.strptime(date_str, "%B %d")
+            return parsed.replace(year=date.today().year).date()
+        except ValueError:
+            pass
+
+        # Try "Jan 20, 2024" format
+        try:
+            return datetime.strptime(date_str, "%b %d, %Y").date()
+        except ValueError:
+            pass
+
+        return None
+
     def parse_message(self, text: str) -> ParsedCommand:
         """Parse incoming message to extract command and arguments.
 
@@ -142,12 +360,44 @@ class TelegramSupport:
             Formatted task string.
         """
         status_emoji = "✅" if task.status == "completed" else "⏳"
-        lines = [f"{status_emoji} {number}. {task.title}"]
+
+        # Build main line with compact indicators (always shown)
+        line = f"{status_emoji} {number}. {task.title}"
+
+        # Always show priority indicator (only high/low, not normal)
+        if task.priority == "high":
+            line += " 🔴"
+        elif task.priority == "low":
+            line += " 🟢"
+
+        # Always show duration if set (compact format)
+        if task.duration_minutes:
+            line += f" {self._format_duration(task.duration_minutes)}"
+
+        lines = [line]
 
         if include_details:
             if task.description:
                 lines.append(f"   📝 {task.description}")
-            lines.append(f"   📅 {task.period_date} ({task.period_type})")
+
+            # Show time if set (detailed view)
+            time_parts = []
+            if task.scheduled_time:
+                time_str = self._format_time_display(task.scheduled_time)
+                if task.scheduled_end_time:
+                    end_str = self._format_time_display(task.scheduled_end_time)
+                    time_parts.append(f"{time_str} - {end_str}")
+                else:
+                    time_parts.append(time_str)
+            if time_parts:
+                lines.append(f"   ⏰ {' '.join(time_parts)}")
+
+            # Show scheduled date if different from period_date
+            if task.scheduled_date and task.scheduled_date != task.period_date:
+                lines.append(f"   📅 Scheduled: {task.scheduled_date}")
+            else:
+                lines.append(f"   📅 {task.period_date} ({task.period_type})")
+
             if task.status == "completed" and task.completed_at:
                 completed_time = task.completed_at.strftime("%Y-%m-%d %H:%M")
                 lines.append(f"   ✔️ Completed: {completed_time}")
@@ -155,6 +405,43 @@ class TelegramSupport:
                 lines.append(f"   ⚠️ Reason: {task.pending_reason}")
 
         return "\n".join(lines)
+
+    def _format_time_display(self, t: time) -> str:
+        """Format time for display (12-hour format).
+
+        Args:
+            t: Time object.
+
+        Returns:
+            Formatted time string like "2:30 PM".
+        """
+        hour = t.hour
+        minute = t.minute
+        period = "AM" if hour < 12 else "PM"
+        if hour == 0:
+            hour = 12
+        elif hour > 12:
+            hour -= 12
+        if minute == 0:
+            return f"{hour} {period}"
+        return f"{hour}:{minute:02d} {period}"
+
+    def _format_duration(self, minutes: int) -> str:
+        """Format duration in minutes to human-readable string.
+
+        Args:
+            minutes: Duration in minutes.
+
+        Returns:
+            Formatted duration string like "1h 30m" or "45m".
+        """
+        if minutes < 60:
+            return f"{minutes}m"
+        hours = minutes // 60
+        remaining = minutes % 60
+        if remaining == 0:
+            return f"{hours}h"
+        return f"{hours}h {remaining}m"
 
     def format_task(self, task: TaskResponse, include_details: bool = False) -> str:
         """Format a single task for Telegram display (legacy, uses DB ID).
@@ -442,6 +729,13 @@ class TelegramSupport:
 /add weekly Category task1, task2
 /add monthly Category task1
 
+⏰ Scheduling Options:
+• Priority: high, low (normal is default)
+• Time: at 2pm, at 14:30
+• Time range: at 8pm to 12am
+• Duration: 30m, 2h, 1h30m
+• Date: tomorrow, on 2024-01-20
+
 📋 Listing Tasks:
 /daily - Show today's tasks
 /weekly - Show this week's tasks
@@ -451,21 +745,17 @@ class TelegramSupport:
 /done [number] - Mark task as completed
 /pending [number] [reason] - Mark as pending
 
-🔍 Search &amp; AI:
+🔍 Search & AI:
 /search [query] - Search tasks
 /ask [question] - Ask about your tasks
 /report [daily|weekly|monthly] - Generate report
 /help - Show this help message
 
-💡 Natural Language:
-Just type naturally! Examples:
-• "add buy groceries"
-• "what tasks do I have today?"
-• "complete task 3"
-
-Examples:
-• /add Work Review PR, Fix bug, Deploy
-• /add weekly Personal Gym, Groceries
+💡 Examples:
+• /add Work Review PR high at 2pm 1h
+• /add meeting at 10am to 12pm
+• /add weekly Personal gym low at 6am
+• /add task1 tomorrow, task2 30m
 • /done 1
 • /pending 2 Blocked by API
 """

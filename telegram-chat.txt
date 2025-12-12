@@ -1,0 +1,20 @@
+Today: work
+- Write unit test from 4pm to 6pm high priority
+- Go running
+- Playing football
+
+Weekly:
+- work:
+  - Finish sign off document
+  - Create new project with python
+- personal
+  - build javascript project
+  - play football
+
+Monthly:
+- work:
+  - Finish sign off document
+  - Create new project with python
+- personal
+  - build javascript project
+  - play football

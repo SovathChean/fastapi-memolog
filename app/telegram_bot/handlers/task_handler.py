@@ -139,13 +139,15 @@ class TaskHandler(BaseHandler):
             )
 
     async def _handle_add(self, update: Update, args: str) -> None:
-        """Handle /add command with support for multiple tasks and categories.
+        """Handle /add command with support for multiple tasks, scheduling, priority.
 
         Supports formats:
         - /add Work task1, task2, task3
         - /add weekly Work task1, task2
         - /add monthly Personal task1
         - /add task1, task2 (defaults to daily, General)
+        - /add Work meeting high at 2pm 1h
+        - /add task1 at 8pm to 12am, task2 low 30m
 
         Args:
             update: Telegram update object.
@@ -157,21 +159,48 @@ class TaskHandler(BaseHandler):
                 self.telegram_support.format_error(
                     "Please provide task(s). Usage:\n"
                     "/add Work task1, task2, task3\n"
+                    "/add task high at 2pm 1h\n"
                     "/add weekly Personal task1, task2"
                 ),
             )
             return
 
-        # Parse the command arguments
-        period_type, category, titles = self.telegram_support.parse_add_command(args)
+        # Parse the command arguments (period, category, raw task texts)
+        period_type, category, raw_titles = self.telegram_support.parse_add_command(
+            args
+        )
 
-        if not titles:
+        if not raw_titles:
             await self.send_message(
                 update,
                 self.telegram_support.format_error(
                     "No tasks found. Usage:\n"
                     "/add Work task1, task2, task3\n"
+                    "/add task high at 2pm 1h\n"
                     "/add weekly Personal task1, task2"
+                ),
+            )
+            return
+
+        # Parse scheduling details from each task text
+        parsed_tasks = [
+            self.telegram_support.parse_task_details(raw_title)
+            for raw_title in raw_titles
+        ]
+
+        # Extract parallel lists for service call
+        titles = [pt.title for pt in parsed_tasks if pt.title]
+        priorities = [pt.priority for pt in parsed_tasks]
+        durations = [pt.duration_minutes for pt in parsed_tasks]
+        scheduled_times = [pt.scheduled_time for pt in parsed_tasks]
+        scheduled_end_times = [pt.scheduled_end_time for pt in parsed_tasks]
+        scheduled_dates = [pt.scheduled_date for pt in parsed_tasks]
+
+        if not titles:
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    "No valid task titles found after parsing."
                 ),
             )
             return
@@ -190,13 +219,18 @@ class TaskHandler(BaseHandler):
 
             today = date.today()
 
-            # Create multiple tasks with user_id
+            # Create multiple tasks with user_id and scheduling
             tasks = await service.create_multiple_tasks(
                 user_id=user.id,
                 titles=titles,
                 category=category,
                 period_type=period_type,
                 period_date=today,
+                priorities=priorities,
+                durations=durations,
+                scheduled_times=scheduled_times,
+                scheduled_end_times=scheduled_end_times,
+                scheduled_dates=scheduled_dates,
             )
 
             # Get period stats for this user

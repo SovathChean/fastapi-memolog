@@ -1,10 +1,10 @@
 """Task domain model for memolog."""
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import Enum
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.domain.base import BaseEntity
@@ -23,6 +23,14 @@ class TaskStatus(str, Enum):
 
     PENDING = "pending"
     COMPLETED = "completed"
+
+
+class TaskPriority(str, Enum):
+    """Task priority enumeration."""
+
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
 
 
 class Task(BaseEntity):
@@ -63,6 +71,17 @@ class Task(BaseEntity):
         Vector(1536),
         nullable=True,
     )
+
+    # Scheduling fields
+    priority: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=TaskPriority.NORMAL.value,
+    )
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scheduled_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    scheduled_end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Relationship to user (many-to-one)
     user: Mapped["TelegramUser"] = relationship(  # noqa: F821

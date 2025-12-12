@@ -1,6 +1,6 @@
 """Task feature schemas for memolog."""
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import Enum
 
 from pydantic import Field, field_validator
@@ -21,6 +21,14 @@ class TaskStatus(str, Enum):
 
     PENDING = "pending"
     COMPLETED = "completed"
+
+
+class TaskPriority(str, Enum):
+    """Task priority enumeration."""
+
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
 
 
 # ============================================================================
@@ -63,6 +71,32 @@ class TaskCreate(BaseSchema):
         ...,
         description="The date this task belongs to",
         examples=["2024-01-15"],
+    )
+    priority: TaskPriority = Field(
+        default=TaskPriority.NORMAL,
+        description="Task priority (low, normal, high)",
+    )
+    duration_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=1440,
+        description="Task duration in minutes (max 24 hours)",
+        examples=[30, 60, 120],
+    )
+    scheduled_time: time | None = Field(
+        default=None,
+        description="Scheduled start time",
+        examples=["09:00:00", "14:30:00"],
+    )
+    scheduled_end_time: time | None = Field(
+        default=None,
+        description="Scheduled end time",
+        examples=["10:00:00", "17:00:00"],
+    )
+    scheduled_date: date | None = Field(
+        default=None,
+        description="Specific scheduled date (if different from period_date)",
+        examples=["2024-01-20"],
     )
 
 
@@ -189,6 +223,11 @@ class TaskResponse(BaseSchema):
     completed_at: datetime | None = Field(None, description="Completion timestamp")
     pending_reason: str | None = Field(None, description="Reason for pending status")
     completion_note: str | None = Field(None, description="Note added when completing")
+    priority: str = Field(default="normal", description="Task priority")
+    duration_minutes: int | None = Field(None, description="Task duration in minutes")
+    scheduled_time: time | None = Field(None, description="Scheduled start time")
+    scheduled_end_time: time | None = Field(None, description="Scheduled end time")
+    scheduled_date: date | None = Field(None, description="Specific scheduled date")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

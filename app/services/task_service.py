@@ -1,12 +1,12 @@
 """Task service with business logic for memolog."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 
 from fastapi import Depends
 
 from app.common.exceptions import NotFoundError, ValidationError
 from app.common.mapper import FieldMapper
-from app.models.domain.task import Task, TaskPeriodType, TaskStatus
+from app.models.domain.task import Task, TaskPeriodType, TaskPriority, TaskStatus
 from app.models.schemas.task import (
     TaskCreate,
     TaskReportRequest,
@@ -90,6 +90,10 @@ class TaskService(BaseService):
         # Convert enum to string value for database
         if isinstance(task_data.get("period_type"), TaskPeriodType):
             task_data["period_type"] = task_data["period_type"].value
+
+        # Convert priority enum to string value
+        if isinstance(task_data.get("priority"), TaskPriority):
+            task_data["priority"] = task_data["priority"].value
 
         # Set default status
         task_data["status"] = TaskStatus.PENDING.value
@@ -466,8 +470,13 @@ class TaskService(BaseService):
         category: str,
         period_type: TaskPeriodType | str,
         period_date: date,
+        priorities: list[TaskPriority | str] | None = None,
+        durations: list[int | None] | None = None,
+        scheduled_times: list[time | None] | None = None,
+        scheduled_end_times: list[time | None] | None = None,
+        scheduled_dates: list[date | None] | None = None,
     ) -> list[Task]:
-        """Create multiple tasks at once.
+        """Create multiple tasks at once with optional scheduling.
 
         Args:
             user_id: User ID who owns these tasks.
@@ -475,6 +484,11 @@ class TaskService(BaseService):
             category: Task category for all tasks.
             period_type: Period type for all tasks.
             period_date: Period date for all tasks.
+            priorities: Optional list of priorities (parallel to titles).
+            durations: Optional list of durations in minutes.
+            scheduled_times: Optional list of start times.
+            scheduled_end_times: Optional list of end times.
+            scheduled_dates: Optional list of scheduled dates.
 
         Returns:
             List of created tasks.
@@ -484,13 +498,42 @@ class TaskService(BaseService):
             period_type = TaskPeriodType(period_type)
 
         tasks = []
-        for title in titles:
+        for i, title in enumerate(titles):
+            # Get scheduling fields for this task (if provided)
+            priority = TaskPriority.NORMAL
+            if priorities and i < len(priorities):
+                p = priorities[i]
+                if isinstance(p, str):
+                    priority = TaskPriority(p)
+                elif p:
+                    priority = p
+
+            duration = durations[i] if durations and i < len(durations) else None
+            sched_time = (
+                scheduled_times[i] if scheduled_times and i < len(scheduled_times)
+                else None
+            )
+            sched_end = (
+                scheduled_end_times[i]
+                if scheduled_end_times and i < len(scheduled_end_times)
+                else None
+            )
+            sched_date = (
+                scheduled_dates[i] if scheduled_dates and i < len(scheduled_dates)
+                else None
+            )
+
             task_data = TaskCreate(
                 user_id=user_id,
                 title=title,
                 category=category,
                 period_type=period_type,
                 period_date=period_date,
+                priority=priority,
+                duration_minutes=duration,
+                scheduled_time=sched_time,
+                scheduled_end_time=sched_end,
+                scheduled_date=sched_date,
             )
             task = await self.create_task(task_data)
             tasks.append(task)
