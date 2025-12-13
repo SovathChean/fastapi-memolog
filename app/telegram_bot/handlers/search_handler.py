@@ -66,6 +66,9 @@ class SearchHandler(BaseHandler):
             )
             return
 
+        # Show typing indicator while searching
+        await self.send_typing(update)
+
         session_factory = get_session_factory()
         async with session_factory() as session:
             # Get or create user

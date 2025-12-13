@@ -1,0 +1,102 @@
+name: Docker Build and Push
+
+on:
+  push:
+    branches:
+      - prod
+      - uat
+      - sit
+
+env:
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
+  DOCKER_HUB_REPO: sovathcc/fastapi-memolog
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Get branch name
+        id: branch
+        run: echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
+      - name: Read version from file
+        id: version
+        run: |
+          VERSION=$(cat VERSION)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Using version: $VERSION from VERSION file"
+
+      - name: Set image tag
+        id: image
+        run: |
+          IMAGE_TAG="${{ env.DOCKER_HUB_REPO }}:${{ steps.version.outputs.version }}-${{ steps.branch.outputs.branch }}"
+          echo "tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Image will be tagged as: ${IMAGE_TAG}"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ env.DOCKER_HUB_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image build information
+        run: |
+          echo "Docker build completed successfully"
+          echo "Docker image pushed to Docker Hub: ${{ steps.image.outputs.tag }}"
+
+  verify-and-test:
+    name: Verify Docker Image
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get branch name
+        id: branch
+        run: echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
+      - name: Read version from file
+        id: version
+        run: |
+          VERSION=$(cat VERSION)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Verifying version: $VERSION"
+
+      - name: Set image tag
+        id: image
+        run: |
+          IMAGE_TAG="${{ env.DOCKER_HUB_REPO }}:${{ steps.version.outputs.version }}-${{ steps.branch.outputs.branch }}"
+          echo "tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Verifying image: ${IMAGE_TAG}"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ env.DOCKER_HUB_PASSWORD }}
+
+      - name: Pull and verify image
+        run: |
+          echo "Pulling image from Docker Hub..."
+          docker pull "${{ steps.image.outputs.tag }}"
+          echo "Image pull successful, verifying image details:"
+          docker inspect "${{ steps.image.outputs.tag }}"

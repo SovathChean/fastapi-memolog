@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from app.models.domain.telegram_user import TelegramUser
@@ -65,6 +66,18 @@ class BaseHandler(ABC):
                 text=text,
                 parse_mode=parse_mode,
             )
+
+    async def send_typing(self, update: Update) -> None:
+        """Show typing indicator to user.
+
+        Call this before long-running operations (AI calls, searches)
+        to indicate the bot is processing the request.
+
+        Args:
+            update: Telegram update object.
+        """
+        if update.effective_chat:
+            await update.effective_chat.send_action(ChatAction.TYPING)
 
     def get_command_args(self, update: Update) -> str:
         """Extract arguments from a command message.

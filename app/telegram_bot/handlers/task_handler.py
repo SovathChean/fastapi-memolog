@@ -119,6 +119,9 @@ class TaskHandler(BaseHandler):
 
         text = update.message.text
 
+        # Show typing indicator while processing
+        await self.send_typing(update)
+
         # Parse bulk input using OpenAI
         from app.support.bulk_task_parser import get_bulk_task_parser
 

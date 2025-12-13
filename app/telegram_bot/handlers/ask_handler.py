@@ -76,6 +76,9 @@ class AskHandler(BaseHandler):
 
         user_id = update.effective_user.id if update.effective_user else 0
 
+        # Show typing indicator while processing AI query
+        await self.send_typing(update)
+
         session_factory = get_session_factory()
         async with session_factory() as session:
             # Initialize repositories and support
