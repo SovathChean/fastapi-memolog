@@ -154,8 +154,16 @@ class TelegramBot:
 
         # Route based on detected intent
         if intent == MessageIntent.ADD_TASK:
-            handler = TaskHandler()
-            await handler.handle_add_natural(update, context)
+            # Check if it's a bulk/complex input
+            from app.support.bulk_task_parser import get_bulk_task_parser
+
+            bulk_parser = get_bulk_task_parser()
+            if bulk_parser.is_bulk_input(text):
+                handler = TaskHandler()
+                await handler.handle_add_bulk(update, context)
+            else:
+                handler = TaskHandler()
+                await handler.handle_add_natural(update, context)
             return
 
         if intent == MessageIntent.COMPLETE_TASK:

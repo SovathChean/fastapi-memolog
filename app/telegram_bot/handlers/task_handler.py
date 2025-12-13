@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 
 from app.models.schemas.task import (
     TaskPeriodType,
+    TaskPriority,
     TaskResponse,
     TaskStatus,
     TaskStatusUpdate,
@@ -93,6 +94,170 @@ class TaskHandler(BaseHandler):
                     "I couldn't understand the task. Try: /add [title]"
                 ),
             )
+
+    async def handle_add_bulk(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """Handle bulk/complex multi-line task input.
+
+        Uses OpenAI to parse hierarchical task structures like:
+        Add Weekly task:
+        - work:
+          - Task 1
+          - Task 2
+        - personal:
+          - Task 3
+
+        Args:
+            update: Telegram update object.
+            context: Callback context.
+        """
+        if not update.message or not update.message.text:
+            return
+
+        text = update.message.text
+
+        # Parse bulk input using OpenAI
+        from app.support.bulk_task_parser import get_bulk_task_parser
+
+        bulk_parser = get_bulk_task_parser()
+
+        try:
+            parsed = await bulk_parser.parse_bulk_input(text)
+
+            if not parsed.tasks:
+                await self.send_message(
+                    update,
+                    self.telegram_support.format_error(
+                        "I couldn't extract any tasks from your message.\n"
+                        "Try a format like:\n"
+                        "Add weekly tasks:\n"
+                        "- Work:\n"
+                        "  - Task 1\n"
+                        "  - Task 2\n"
+                        "- Personal:\n"
+                        "  - Task 3"
+                    ),
+                )
+                return
+
+            session_factory = get_session_factory()
+            async with session_factory() as session:
+                # Get or create user
+                user = await self.get_or_create_user(update, session)
+
+                repository = TaskRepository(session)
+                task_support = TaskSupport()
+                service = TaskService(
+                    repository=repository,
+                    task_support=task_support,
+                )
+
+                today = date.today()
+                created_tasks = []
+
+                # Create tasks grouped by category
+                for category, title, priority in parsed.tasks:
+                    tasks = await service.create_multiple_tasks(
+                        user_id=user.id,
+                        titles=[title],
+                        category=category,
+                        period_type=parsed.period,
+                        period_date=today,
+                        priorities=[priority],
+                        durations=[None],
+                        scheduled_times=[None],
+                        scheduled_end_times=[None],
+                        scheduled_dates=[None],
+                    )
+                    created_tasks.extend(tasks)
+
+                # Commit the transaction
+                await session.commit()
+
+                # Get period stats
+                stats = await service.get_period_stats_quick(
+                    user.id, parsed.period, today
+                )
+
+                # Format response grouped by category
+                response = self._format_bulk_response(
+                    tasks=parsed.tasks,
+                    period_type=parsed.period.value,
+                    total_in_period=stats["total"],
+                    completed_in_period=stats["completed"],
+                )
+
+                await self.send_message(update, response)
+
+        except Exception as e:
+            self.logger.error(f"Failed to parse bulk tasks: {e}")
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    "Sorry, I couldn't process your tasks. Please try again."
+                ),
+            )
+
+    def _format_bulk_response(
+        self,
+        tasks: list[tuple[str, str, TaskPriority]],
+        period_type: str,
+        total_in_period: int,
+        completed_in_period: int,
+    ) -> str:
+        """Format response for bulk task creation.
+
+        Args:
+            tasks: List of (category, title, priority) tuples.
+            period_type: Period type string.
+            total_in_period: Total tasks in period.
+            completed_in_period: Completed tasks in period.
+
+        Returns:
+            Formatted response string.
+        """
+        if not tasks:
+            return "No tasks created."
+
+        count = len(tasks)
+        plural = "s" if count > 1 else ""
+        lines = [f"Created {count} {period_type} task{plural}:", ""]
+
+        # Group by category
+        categories: dict[str, list[tuple[str, TaskPriority]]] = {}
+        for category, title, priority in tasks:
+            if category not in categories:
+                categories[category] = []
+            categories[category].append((title, priority))
+
+        # Format by category
+        task_number = 0
+        for category, category_tasks in categories.items():
+            lines.append(f"{category}:")
+            for title, priority in category_tasks:
+                task_number += 1
+                priority_icon = ""
+                if priority == TaskPriority.HIGH:
+                    priority_icon = " "
+                elif priority == TaskPriority.LOW:
+                    priority_icon = " "
+                lines.append(f"  {task_number}. {title}{priority_icon}")
+            lines.append("")
+
+        pending = total_in_period - completed_in_period
+        period_label = {
+            "daily": "Today",
+            "weekly": "This week",
+            "monthly": "This month",
+        }.get(period_type, period_type.title())
+
+        stats = f"{pending} pending, {completed_in_period} completed"
+        lines.append(f"{period_label}: {stats}")
+
+        return "\n".join(lines)
 
     async def handle_complete_natural(
         self,
@@ -320,7 +485,7 @@ class TaskHandler(BaseHandler):
             return
 
         # Extract completion note (everything after task number)
-        note_parts = parts[task_number_idx + 1:]
+        note_parts = parts[task_number_idx + 1 :]
         completion_note = " ".join(note_parts) if note_parts else None
 
         if task_number < 1:
@@ -463,7 +628,7 @@ class TaskHandler(BaseHandler):
             return
 
         # Extract reason (everything after task number)
-        reason_parts = parts[task_number_idx + 1:]
+        reason_parts = parts[task_number_idx + 1 :]
         reason = " ".join(reason_parts) if reason_parts else None
 
         session_factory = get_session_factory()

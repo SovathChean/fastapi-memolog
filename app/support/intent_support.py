@@ -43,9 +43,10 @@ class IntentSupport:
         r"anything (about|related|with)",
     ]
 
-    # Add task patterns
+    # Add task patterns - supports "add weekly task", "add task", etc.
     ADD_PATTERNS = [
-        r"^(add|create|new|make)\s+(a\s+)?task",
+        r"^(add|create|new|make)\s+(?:daily|weekly|monthly\s+)?(a\s+)?task",
+        r"^(add|create|new|make)\s+(?:daily|weekly|monthly)\b",
         r"^(add|create|new)\s*:",
         r"^(remind me to|i need to|i have to|i should)\b",
         r"^(todo|to-do|to do)\s*:",
