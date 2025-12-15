@@ -1,46 +1,25 @@
 version: '3.7'
 
 services:
-  # Celery worker for background document processing
-  celery_worker:
-    image: sovathcc/fastapi-doxi:1.0.0-uat
-    container_name: rag_celery_worker
-    restart: unless-stopped
-    command: celery -A app.workers.celery_app worker -Q default,documents,embeddings --loglevel=info
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
-      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}/0
-    env_file:
-      - .env.uat
-    volumes:
-      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
-    networks:
-      - myapp
-
   # FastAPI application
   app:
-    image: sovathcc/fastapi-doxi:1.0.0-uat
-    container_name: rag_app
+    image: sovathcc/fastapi-memolog:1.0.0-uat
+    container_name: memo_app
     restart: unless-stopped
     ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
-      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}/0
+      - "8001:8001"
     env_file:
-      - .env.uat
-    volumes:
-      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+      - .env
     command: fastapi run main.py --host 0.0.0.0
     networks:
       - myapp
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rag-api.rule=Host(`n8n.komror.com`)"
-      - "traefik.http.routers.rag-api.entrypoints=websecure"
-      - "traefik.http.routers.rag-api.tls=true"
-      - "traefik.http.routers.rag-api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.rag-api.loadbalancer.server.port=8000"
+      - "traefik.http.routers.memo-api.rule=Host(`postiz.komror.com`)"
+      - "traefik.http.routers.memo-api.entrypoints=websecure"
+      - "traefik.http.routers.memo-api.tls=true"
+      - "traefik.http.routers.memo-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.memo-api.loadbalancer.server.port=8001"
 
 networks:
   myapp:

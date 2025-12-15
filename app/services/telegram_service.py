@@ -87,7 +87,11 @@ class TelegramService(BaseService):
         elif command == TelegramCommand.ADD:
             return await self._handle_add(args)
 
-        elif command in (TelegramCommand.DAILY, TelegramCommand.WEEKLY, TelegramCommand.MONTHLY):
+        elif command in (
+            TelegramCommand.DAILY,
+            TelegramCommand.WEEKLY,
+            TelegramCommand.MONTHLY,
+        ):
             return await self._handle_period_list(command)
 
         elif command == TelegramCommand.DONE:
@@ -102,7 +106,9 @@ class TelegramService(BaseService):
         elif command == TelegramCommand.REPORT:
             return await self._handle_report(args)
 
-        return self.telegram_support.format_error("Unknown command. Use /help for available commands.")
+        return self.telegram_support.format_error(
+            "Unknown command. Use /help for available commands."
+        )
 
     async def _handle_add(self, args: str) -> str:
         """Handle /add command.
@@ -114,7 +120,9 @@ class TelegramService(BaseService):
             Response message.
         """
         if not args:
-            return self.telegram_support.format_error("Please provide a task title. Usage: /add [title]")
+            return self.telegram_support.format_error(
+                "Please provide a task title. Usage: /add [title]"
+            )
 
         today = date.today()
         task_data = TaskCreate(
@@ -166,12 +174,16 @@ class TelegramService(BaseService):
             Response message.
         """
         if not args:
-            return self.telegram_support.format_error("Please provide a task ID. Usage: /done [id]")
+            return self.telegram_support.format_error(
+                "Please provide a task ID. Usage: /done [id]"
+            )
 
         try:
             task_id = int(args.strip())
         except ValueError:
-            return self.telegram_support.format_error("Invalid task ID. Please provide a number.")
+            return self.telegram_support.format_error(
+                "Invalid task ID. Please provide a number."
+            )
 
         status_data = TaskStatusUpdate(status=TaskStatus.COMPLETED)
         task = await self.task_service.update_task_status(task_id, status_data)
@@ -191,7 +203,8 @@ class TelegramService(BaseService):
         """
         if not args:
             return self.telegram_support.format_error(
-                "Please provide task ID and reason. Usage: /pending [id] [reason]"
+                "Please provide task ID and reason. "
+                "Usage: /pending [id] [reason]"
             )
 
         parts = args.split(maxsplit=1)
@@ -201,7 +214,9 @@ class TelegramService(BaseService):
         try:
             task_id = int(parts[0])
         except ValueError:
-            return self.telegram_support.format_error("Invalid task ID. Please provide a number.")
+            return self.telegram_support.format_error(
+                "Invalid task ID. Please provide a number."
+            )
 
         reason = parts[1] if len(parts) > 1 else None
 
@@ -226,7 +241,8 @@ class TelegramService(BaseService):
         """
         if not args:
             return self.telegram_support.format_error(
-                "Please provide a search query. Usage: /search [query]"
+                "Please provide a search query. "
+                "Usage: /search [query]"
             )
 
         search_request = TaskSearchRequest(query=args, limit=10)
@@ -325,7 +341,8 @@ class TelegramService(BaseService):
             return await self._handle_search(text)
 
         # Check for report intent
-        if any(word in text_lower for word in ["report", "summary", "progress", "status"]):
+        report_words = ["report", "summary", "progress", "status"]
+        if any(word in text_lower for word in report_words):
             if "week" in text_lower:
                 return await self._handle_report("weekly")
             elif "month" in text_lower:
