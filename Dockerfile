@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose port
-EXPOSE 8001
+EXPOSE 8000
 
 # Default command
 CMD ["fastapi", "run", "main.py", "--host", "0.0.0.0"]
