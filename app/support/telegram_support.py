@@ -590,10 +590,108 @@ class TelegramSupport:
         if task.completion_note:
             lines.append(f"📝 Note: {task.completion_note}")
 
-        lines.extend([
-            "",
-            f"📊 {period_label}: {pending} pending, {completed_in_period} completed",
-        ])
+        lines.extend(
+            [
+                "",
+                f"📊 {period_label}: {pending} pending, {completed_in_period} done",
+            ]
+        )
+
+        return "\n".join(lines)
+
+    def format_bulk_done_response(
+        self,
+        completed_tasks: list[tuple[TaskResponse, str | None]],
+        failed_tasks: list[tuple[int, str]],
+        total_in_period: int,
+        completed_in_period: int,
+        period_type: str = "daily",
+    ) -> str:
+        """Format response for bulk task completion.
+
+        Args:
+            completed_tasks: List of (task, note) tuples for completed tasks.
+            failed_tasks: List of (task_number, error_message) tuples.
+            total_in_period: Total tasks in the period.
+            completed_in_period: Completed tasks in the period.
+            period_type: Period type (daily, weekly, monthly).
+
+        Returns:
+            Formatted response string.
+        """
+        lines = []
+
+        # Show completed tasks
+        if completed_tasks:
+            count = len(completed_tasks)
+            plural = "s" if count > 1 else ""
+            lines.append(f"✅ Completed {count} task{plural}:")
+            lines.append("")
+
+            for task, note in completed_tasks:
+                lines.append(f"  • {task.title} [{task.category}]")
+                if note:
+                    lines.append(f"    📝 {note}")
+
+        # Show failed tasks
+        if failed_tasks:
+            if lines:
+                lines.append("")
+            lines.append("❌ Failed:")
+            for task_num, error in failed_tasks:
+                lines.append(f"  #{task_num}: {error}")
+
+        # Show stats
+        if completed_tasks or failed_tasks:
+            period_label = self._get_period_label(period_type)
+            pending = total_in_period - completed_in_period
+            lines.append("")
+            lines.append(
+                f"📊 {period_label}: {pending} pending, {completed_in_period} completed"
+            )
+        else:
+            lines.append("No tasks were updated.")
+
+        return "\n".join(lines)
+
+    def format_bulk_pending_response(
+        self,
+        pending_tasks: list[tuple[TaskResponse, str | None]],
+        failed_tasks: list[tuple[int, str]],
+        period_type: str = "daily",
+    ) -> str:
+        """Format response for bulk task pending update.
+
+        Args:
+            pending_tasks: List of (task, reason) tuples.
+            failed_tasks: List of (task_number, error_message) tuples.
+            period_type: Period type (daily, weekly, monthly).
+
+        Returns:
+            Formatted response string.
+        """
+        lines = []
+
+        if pending_tasks:
+            count = len(pending_tasks)
+            plural = "s" if count > 1 else ""
+            lines.append(f"⏳ Marked {count} task{plural} as pending:")
+            lines.append("")
+
+            for task, reason in pending_tasks:
+                lines.append(f"  • {task.title} [{task.category}]")
+                if reason:
+                    lines.append(f"    📝 {reason}")
+
+        if failed_tasks:
+            if lines:
+                lines.append("")
+            lines.append("❌ Failed:")
+            for task_num, error in failed_tasks:
+                lines.append(f"  #{task_num}: {error}")
+
+        if not pending_tasks and not failed_tasks:
+            lines.append("No tasks were updated.")
 
         return "\n".join(lines)
 
@@ -859,9 +957,7 @@ class TelegramSupport:
             score_bar = self._score_to_bar(result.similarity_score)
             status_emoji = "✅" if result.task.status == "completed" else "⏳"
             category = f"[{result.task.category}]" if result.task.category else ""
-            lines.append(
-                f"{score_bar} {status_emoji} {result.task.title} {category}"
-            )
+            lines.append(f"{score_bar} {status_emoji} {result.task.title} {category}")
 
         if len(results) > 5:
             lines.append(f"... and {len(results) - 5} more")
