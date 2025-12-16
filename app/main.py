@@ -38,6 +38,12 @@ async def lifespan(app: FastAPI):
     telegram_bot = TelegramBot()
     await telegram_bot.initialize()
 
+    # Initialize Crypto bot
+    from app.crypto_bot import CryptoBot
+
+    crypto_bot = CryptoBot()
+    await crypto_bot.initialize()
+
     yield
 
     # Shutdown

@@ -11,6 +11,7 @@ class TelegramUserCreate(BaseSchema):
     """Schema for creating/updating a Telegram user."""
 
     telegram_id: int = Field(..., description="Unique Telegram user ID")
+    bot_type: str = Field("memolog", max_length=50, description="Bot identifier")
     chat_id: int | None = Field(None, description="Chat ID for messaging")
     username: str | None = Field(None, max_length=255, description="@username")
     first_name: str = Field(..., max_length=255, description="User's first name")
@@ -23,6 +24,7 @@ class TelegramUserResponse(BaseSchema):
 
     id: int = Field(..., description="Internal user ID")
     telegram_id: int = Field(..., description="Telegram user ID")
+    bot_type: str = Field(..., description="Bot identifier")
     chat_id: int | None = Field(None, description="Chat ID")
     username: str | None = Field(None, description="@username")
     first_name: str = Field(..., description="First name")

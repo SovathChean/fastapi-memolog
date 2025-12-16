@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_webhook_url: str = ""
 
+    # Crypto Bot Configuration
+    crypto_bot_token: str = ""
+    crypto_webhook_url: str = ""
+
     # Vector Search Settings
     search_top_k: int = 5
 

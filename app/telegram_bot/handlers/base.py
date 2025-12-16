@@ -137,6 +137,7 @@ class BaseHandler(ABC):
 
         user, created = await service.get_or_create_user(
             telegram_id=telegram_user.id,
+            bot_type="memolog",
             chat_id=update.effective_chat.id if update.effective_chat else None,
             username=telegram_user.username,
             first_name=telegram_user.first_name or "User",
