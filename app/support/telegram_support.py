@@ -497,7 +497,8 @@ class TelegramSupport:
 
         if group_by_category:
             # Group by category while maintaining global numbering
-            sorted_tasks = sorted(tasks, key=lambda t: (t.category, t.created_at))
+            # Use id as tie-breaker for deterministic ordering when created_at is same
+            sorted_tasks = sorted(tasks, key=lambda t: (t.category, t.created_at, t.id))
             current_category = None
             global_number = 0
 

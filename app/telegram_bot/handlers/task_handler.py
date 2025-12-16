@@ -459,13 +459,21 @@ class TaskHandler(BaseHandler):
         period_type = TaskPeriodType.DAILY
         task_number_idx = 0
 
+        # Period type aliases (shorthand support)
+        period_aliases = {
+            "daily": TaskPeriodType.DAILY,
+            "day": TaskPeriodType.DAILY,
+            "weekly": TaskPeriodType.WEEKLY,
+            "week": TaskPeriodType.WEEKLY,
+            "monthly": TaskPeriodType.MONTHLY,
+            "month": TaskPeriodType.MONTHLY,
+        }
+
         # Check if first part is a period type
-        if parts[0].lower() in ("weekly", "monthly"):
-            try:
-                period_type = TaskPeriodType(parts[0].lower())
-                task_number_idx = 1
-            except ValueError:
-                pass
+        first_part = parts[0].lower()
+        if first_part in period_aliases:
+            period_type = period_aliases[first_part]
+            task_number_idx = 1
 
         if task_number_idx >= len(parts):
             await self.send_message(
@@ -595,13 +603,21 @@ class TaskHandler(BaseHandler):
         period_type = TaskPeriodType.DAILY
         task_number_idx = 0
 
+        # Period type aliases (shorthand support)
+        period_aliases = {
+            "daily": TaskPeriodType.DAILY,
+            "day": TaskPeriodType.DAILY,
+            "weekly": TaskPeriodType.WEEKLY,
+            "week": TaskPeriodType.WEEKLY,
+            "monthly": TaskPeriodType.MONTHLY,
+            "month": TaskPeriodType.MONTHLY,
+        }
+
         # Check if first part is a period type
-        if parts[0].lower() in ("weekly", "monthly"):
-            try:
-                period_type = TaskPeriodType(parts[0].lower())
-                task_number_idx = 1
-            except ValueError:
-                pass
+        first_part = parts[0].lower()
+        if first_part in period_aliases:
+            period_type = period_aliases[first_part]
+            task_number_idx = 1
 
         if task_number_idx >= len(parts):
             await self.send_message(

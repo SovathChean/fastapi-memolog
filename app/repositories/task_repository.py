@@ -65,7 +65,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         stmt = (
             select(Task)
             .where(and_(*conditions))
-            .order_by(Task.period_date.desc(), Task.created_at.desc())
+            .order_by(Task.category.asc(), Task.created_at.asc(), Task.id.asc())
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -109,7 +109,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         stmt = (
             select(Task)
             .where(and_(*conditions))
-            .order_by(Task.period_date.desc(), Task.created_at.desc())
+            .order_by(Task.category.asc(), Task.created_at.asc(), Task.id.asc())
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -253,7 +253,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
         stmt = (
             select(Task)
             .where(and_(Task.user_id == user_id, Task.status == status))
-            .order_by(Task.period_date.desc(), Task.created_at.desc())
+            .order_by(Task.category.asc(), Task.created_at.asc(), Task.id.asc())
             .limit(limit)
         )
         result = await self.session.execute(stmt)
@@ -316,7 +316,7 @@ class TaskRepository(SQLAlchemyRepository[Task]):
                     Task.period_date <= end_date,
                 )
             )
-            .order_by(Task.category.asc(), Task.created_at.asc())
+            .order_by(Task.category.asc(), Task.created_at.asc(), Task.id.asc())
             .offset(period_number - 1)  # Convert 1-based to 0-based
             .limit(1)
         )
