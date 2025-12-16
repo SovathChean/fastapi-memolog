@@ -17,6 +17,13 @@ class TradeStatus(str, Enum):
     LOSS = "loss"
 
 
+class TradeDirection(str, Enum):
+    """Trade direction enumeration."""
+
+    LONG = "long"
+    SHORT = "short"
+
+
 class CryptoTrade(BaseEntity):
     """Crypto trade entity for profit/loss tracking."""
 
@@ -30,6 +37,11 @@ class CryptoTrade(BaseEntity):
         index=True,
     )
     coin: Mapped[str] = mapped_column(String(50), nullable=False)
+    direction: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default=TradeDirection.LONG.value,
+    )
     budget: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     entry: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     stoploss: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)

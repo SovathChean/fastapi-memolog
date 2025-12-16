@@ -20,7 +20,7 @@ class TradeHandler(BaseCryptoHandler):
     @property
     def commands(self) -> list[str]:
         """Commands this handler responds to."""
-        return ["add", "trades", "pnl", "open", "close", "delete"]
+        return ["add", "trades", "pnl", "open", "close", "delete", "view"]
 
     async def handle(
         self,
@@ -43,6 +43,8 @@ class TradeHandler(BaseCryptoHandler):
             await self._handle_close(update, args)
         elif command == "delete":
             await self._handle_delete(update, args)
+        elif command == "view":
+            await self._handle_view(update, args)
 
     async def handle_add_natural(
         self,
@@ -52,6 +54,15 @@ class TradeHandler(BaseCryptoHandler):
     ) -> None:
         """Handle natural language trade input."""
         await self._handle_add(update, text)
+
+    async def handle_close_natural(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        text: str,
+    ) -> None:
+        """Handle natural language close input."""
+        await self._handle_close_natural(update, text)
 
     def _parse_trade_input(self, text: str) -> dict:
         """Parse trade input from multi-line format.
@@ -71,6 +82,7 @@ class TradeHandler(BaseCryptoHandler):
         """
         result = {
             "coin": None,
+            "direction": "long",
             "budget": None,
             "entry": None,
             "stoploss": None,
@@ -105,6 +117,12 @@ class TradeHandler(BaseCryptoHandler):
             try:
                 if key == "coin":
                     result["coin"] = value.upper()
+                elif key == "direction":
+                    direction_lower = value.lower()
+                    if direction_lower in ["short", "s"]:
+                        result["direction"] = "short"
+                    else:
+                        result["direction"] = "long"
                 elif key == "budget":
                     result["budget"] = Decimal(numeric_value)
                 elif key == "entry":
@@ -130,6 +148,80 @@ class TradeHandler(BaseCryptoHandler):
                 elif key == "loss":
                     result["loss"] = Decimal(numeric_value)
                 elif key == "reason":
+                    result["reason"] = value
+            except (InvalidOperation, ValueError):
+                continue
+
+        return result
+
+    def _parse_close_input(self, text: str) -> dict:
+        """Parse close input from multi-line format.
+
+        Expected format:
+        Close 1:
+        status: loss
+        note: emotion trade
+        Loss: 20$
+        exit: 41000
+
+        Returns:
+            Dictionary with parsed close data.
+        """
+        result = {
+            "trade_id": None,
+            "status": None,
+            "exit_price": None,
+            "profit": None,
+            "loss": None,
+            "reason": None,
+        }
+
+        lines = text.strip().split("\n")
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check first line for "close [id]:" pattern
+            if line.lower().startswith("close"):
+                # Extract trade ID from "close 1:" or "close 1"
+                import re
+
+                match = re.search(r"close\s*(\d+)", line, re.IGNORECASE)
+                if match:
+                    result["trade_id"] = int(match.group(1))
+                continue
+
+            # Parse key: value format
+            match = re.match(r"^([^:]+):\s*(.*)$", line, re.IGNORECASE)
+            if not match:
+                continue
+
+            key = match.group(1).strip().lower()
+            value = match.group(2).strip()
+
+            # Remove $ and common symbols from numeric values
+            numeric_value = re.sub(r"[$,]", "", value)
+
+            try:
+                if key == "status":
+                    status_lower = value.lower()
+                    if status_lower in ["win", "won", "profit"]:
+                        result["status"] = "win"
+                    elif status_lower in ["loss", "lost", "lose"]:
+                        result["status"] = "loss"
+                elif key in ["exit", "exit_price", "exitprice", "price"]:
+                    result["exit_price"] = Decimal(numeric_value)
+                elif key == "profit":
+                    result["profit"] = Decimal(numeric_value)
+                    if not result["status"]:
+                        result["status"] = "win"
+                elif key == "loss":
+                    result["loss"] = Decimal(numeric_value)
+                    if not result["status"]:
+                        result["status"] = "loss"
+                elif key in ["note", "reason"]:
                     result["reason"] = value
             except (InvalidOperation, ValueError):
                 continue
@@ -177,9 +269,12 @@ class TradeHandler(BaseCryptoHandler):
             service = CryptoTradeService(repository)
 
             # Create trade
+            from app.models.schemas.crypto_trade import TradeDirection
+
             trade_data = CryptoTradeCreate(
                 user_id=user.id,
                 coin=parsed["coin"],
+                direction=TradeDirection(parsed["direction"]),
                 budget=parsed["budget"],
                 entry=parsed["entry"],
                 stoploss=parsed["stoploss"],
@@ -204,27 +299,29 @@ class TradeHandler(BaseCryptoHandler):
         status_emoji = {"open": "🔵", "win": "🟢", "loss": "🔴"}.get(
             trade.status, "⚪"
         )
+        direction_emoji = "📈" if trade.direction == "long" else "📉"
 
         lines = [
             "✅ <b>Trade Recorded</b>",
             "",
             f"💰 <b>{trade.coin}</b>",
-            f"📊 Budget: ${trade.budget}",
-            f"🎯 Entry: {trade.entry}",
-            f"🛑 Stoploss: {trade.stoploss}",
+            f"{direction_emoji} Direction: {trade.direction.upper()}",
+            f"📊 Budget: ${float(trade.budget):.2f}",
+            f"🎯 Entry: {float(trade.entry):.2f}",
+            f"🛑 Stoploss: {float(trade.stoploss):.2f}",
         ]
 
         if trade.take_profit:
-            lines.append(f"🎯 Take Profit: {trade.take_profit}")
+            lines.append(f"🎯 Take Profit: {float(trade.take_profit):.2f}")
         if trade.leverage != 50:
             lines.append(f"⚡ Leverage: {trade.leverage}x")
 
         lines.append(f"{status_emoji} Status: {trade.status.upper()}")
 
         if trade.profit:
-            lines.append(f"💵 Profit: ${trade.profit}")
+            lines.append(f"💵 Profit: ${float(trade.profit):.2f}")
         if trade.loss:
-            lines.append(f"💸 Loss: ${trade.loss}")
+            lines.append(f"💸 Loss: ${float(trade.loss):.2f}")
         if trade.reason:
             lines.append(f"📝 Note: {trade.reason}")
 
@@ -256,15 +353,16 @@ class TradeHandler(BaseCryptoHandler):
                 status_emoji = {"open": "🔵", "win": "🟢", "loss": "🔴"}.get(
                     trade.status, "⚪"
                 )
+                direction_emoji = "📈" if trade.direction == "long" else "📉"
                 pnl = ""
                 if trade.profit:
-                    pnl = f" +${trade.profit}"
+                    pnl = f" +${float(trade.profit):.2f}"
                 elif trade.loss:
-                    pnl = f" -${trade.loss}"
+                    pnl = f" -${float(trade.loss):.2f}"
 
                 lines.append(
-                    f"{status_emoji} <b>{trade.coin}</b> | "
-                    f"${trade.budget} @ {trade.entry}{pnl}"
+                    f"{status_emoji}{direction_emoji} <b>{trade.coin}</b> | "
+                    f"${float(trade.budget):.2f} @ {float(trade.entry):.2f}{pnl}"
                 )
 
             await self.send_message(update, "\n".join(lines))
@@ -288,10 +386,10 @@ class TradeHandler(BaseCryptoHandler):
                 f"🔵 Open: {summary.open_trades}\n"
                 f"🟢 Wins: {summary.winning_trades}\n"
                 f"🔴 Losses: {summary.losing_trades}\n\n"
-                f"💰 Total Profit: ${summary.total_profit}\n"
-                f"💸 Total Loss: ${summary.total_loss}\n"
-                f"{net_emoji} Net P&L: ${summary.net_pnl}\n\n"
-                f"📊 Win Rate: {summary.win_rate}%"
+                f"💰 Total Profit: ${float(summary.total_profit):.2f}\n"
+                f"💸 Total Loss: ${float(summary.total_loss):.2f}\n"
+                f"{net_emoji} Net P&L: ${float(summary.net_pnl):.2f}\n\n"
+                f"📊 Win Rate: {summary.win_rate:.1f}%"
             )
 
             await self.send_message(update, response)
@@ -316,11 +414,14 @@ class TradeHandler(BaseCryptoHandler):
             lines = ["🔵 <b>Open Positions</b>", ""]
 
             for trade in trades:
+                direction_emoji = "📈" if trade.direction == "long" else "📉"
+                tp_str = ""
+                if trade.take_profit:
+                    tp_str = f" | 🎯 TP: {float(trade.take_profit):.2f}"
                 lines.append(
-                    f"#{trade.id} <b>{trade.coin}</b>\n"
-                    f"   💰 ${trade.budget} @ {trade.entry}\n"
-                    f"   🛑 SL: {trade.stoploss}"
-                    + (f" | 🎯 TP: {trade.take_profit}" if trade.take_profit else "")
+                    f"#{trade.id} {direction_emoji} <b>{trade.coin}</b>\n"
+                    f"   💰 ${float(trade.budget):.2f} @ {float(trade.entry):.2f}\n"
+                    f"   🛑 SL: {float(trade.stoploss):.2f}{tp_str}"
                 )
                 lines.append("")
 
@@ -397,7 +498,7 @@ class TradeHandler(BaseCryptoHandler):
                 )
                 exit_info = ""
                 if updated.exit_price:
-                    exit_info = f"\n📍 Exit: {updated.exit_price}"
+                    exit_info = f"\n📍 Exit: {float(updated.exit_price):.2f}"
                 await self.send_message(
                     update,
                     f"✅ Trade #{trade_id} closed\n"
@@ -407,6 +508,97 @@ class TradeHandler(BaseCryptoHandler):
                 await self.send_message(
                     update, "❌ Please provide exit price and/or status"
                 )
+
+    async def _handle_close_natural(self, update: Update, text: str) -> None:
+        """Handle natural language close input.
+
+        Format:
+        Close 1:
+        status: loss
+        note: emotion trade
+        Loss: 20$
+        exit: 41000
+        """
+        parsed = self._parse_close_input(text)
+
+        if not parsed["trade_id"]:
+            await self.send_message(
+                update,
+                "❌ <b>Close Trade</b>\n\n"
+                "Format:\n"
+                "<code>Close 1:\n"
+                "status: loss\n"
+                "note: emotion trade\n"
+                "Loss: 20$\n"
+                "exit: 41000</code>",
+            )
+            return
+
+        trade_id = parsed["trade_id"]
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            user = await self.get_or_create_user(update, session)
+
+            repository = CryptoTradeRepository(session)
+            service = CryptoTradeService(repository)
+
+            trade = await service.get_trade(trade_id)
+
+            if not trade or trade.user_id != user.id:
+                await self.send_message(update, "❌ Trade not found")
+                return
+
+            if trade.status != TradeStatus.OPEN.value:
+                await self.send_message(update, "❌ Trade is already closed")
+                return
+
+            # Build update data
+            update_data = {}
+            if parsed["status"]:
+                update_data["status"] = parsed["status"]
+            if parsed["exit_price"]:
+                update_data["exit_price"] = parsed["exit_price"]
+            if parsed["profit"]:
+                update_data["profit"] = parsed["profit"]
+            if parsed["loss"]:
+                update_data["loss"] = parsed["loss"]
+            if parsed["reason"]:
+                update_data["reason"] = parsed["reason"]
+
+            if not update_data:
+                await self.send_message(
+                    update, "❌ Please provide status, exit price, or P&L"
+                )
+                return
+
+            from app.models.schemas.crypto_trade import CryptoTradeUpdate
+
+            updated = await service.update_trade(
+                trade_id, CryptoTradeUpdate(**update_data)
+            )
+            await session.commit()
+
+            # Format response
+            status_emoji = {"win": "🟢", "loss": "🔴"}.get(updated.status, "⚪")
+
+            lines = [
+                f"✅ <b>Trade #{trade_id} Closed</b>",
+                "",
+                f"💰 <b>{updated.coin}</b>",
+                f"{status_emoji} Status: {updated.status.upper()}",
+            ]
+
+            if updated.profit:
+                lines.append(f"💵 Profit: ${float(updated.profit):.2f}")
+            if updated.loss:
+                lines.append(f"💸 Loss: ${float(updated.loss):.2f}")
+            if updated.exit_price:
+                lines.append(f"📍 Exit: {float(updated.exit_price):.2f}")
+            if updated.reason:
+                lines.append(f"📝 Note: {updated.reason}")
+
+            await self.send_message(update, "\n".join(lines))
 
     async def _handle_delete(self, update: Update, args: str) -> None:
         """Handle /delete [id] command."""
@@ -437,3 +629,63 @@ class TradeHandler(BaseCryptoHandler):
             await session.commit()
 
             await self.send_message(update, f"🗑️ Trade #{trade_id} deleted")
+
+    async def _handle_view(self, update: Update, args: str) -> None:
+        """Handle /view [id] command - view detailed trade info."""
+        if not args:
+            await self.send_message(update, "❌ Usage: /view [trade_id]")
+            return
+
+        try:
+            trade_id = int(args.strip())
+        except ValueError:
+            await self.send_message(update, "❌ Invalid trade ID")
+            return
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            user = await self.get_or_create_user(update, session)
+
+            repository = CryptoTradeRepository(session)
+            service = CryptoTradeService(repository)
+
+            trade = await service.get_trade(trade_id)
+
+            if not trade or trade.user_id != user.id:
+                await self.send_message(update, "❌ Trade not found")
+                return
+
+            # Format detailed view
+            status_emoji = {"open": "🔵", "win": "🟢", "loss": "🔴"}.get(
+                trade.status, "⚪"
+            )
+            direction_emoji = "📈" if trade.direction == "long" else "📉"
+
+            lines = [
+                f"💰 <b>{trade.coin}</b>",
+                f"{direction_emoji} Direction: {trade.direction.upper()}",
+                f"📊 Budget: ${float(trade.budget):.2f}",
+                f"🎯 Entry: {float(trade.entry):.2f}",
+                f"🛑 Stoploss: {float(trade.stoploss):.2f}",
+            ]
+
+            if trade.take_profit:
+                lines.append(f"🎯 Take Profit: {float(trade.take_profit):.2f}")
+
+            if trade.leverage != 50:
+                lines.append(f"⚡ Leverage: {trade.leverage}x")
+
+            lines.append(f"{status_emoji} Status: {trade.status.upper()}")
+
+            if trade.profit:
+                lines.append(f"💵 Profit: ${float(trade.profit):.2f}")
+            if trade.loss:
+                lines.append(f"💸 Loss: ${float(trade.loss):.2f}")
+            if trade.exit_price:
+                lines.append(f"📍 Close at: {float(trade.exit_price):.2f}")
+            if trade.reason:
+                lines.append(f"📝 Note: {trade.reason}")
+
+            lines.append(f"\n🆔 Trade ID: {trade.id}")
+
+            await self.send_message(update, "\n".join(lines))

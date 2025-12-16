@@ -15,11 +15,21 @@ class TradeStatus(str, Enum):
     LOSS = "loss"
 
 
+class TradeDirection(str, Enum):
+    """Trade direction enumeration."""
+
+    LONG = "long"
+    SHORT = "short"
+
+
 class CryptoTradeCreate(BaseModel):
     """Schema for creating a crypto trade."""
 
     user_id: int = Field(..., description="User ID")
     coin: str = Field(..., max_length=50, description="Trading pair (e.g., WLDUSDT)")
+    direction: TradeDirection = Field(
+        default=TradeDirection.LONG, description="Trade direction (long/short)"
+    )
     budget: Decimal = Field(..., gt=0, description="Investment amount")
     entry: Decimal = Field(..., gt=0, description="Entry price")
     stoploss: Decimal = Field(..., gt=0, description="Stop loss price")
@@ -48,6 +58,7 @@ class CryptoTradeResponse(BaseModel):
     id: int
     user_id: int
     coin: str
+    direction: str
     budget: Decimal
     entry: Decimal
     stoploss: Decimal

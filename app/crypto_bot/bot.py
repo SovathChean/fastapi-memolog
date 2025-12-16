@@ -123,6 +123,14 @@ class CryptoBot:
             await handler.handle_add_natural(update, context, text)
             return
 
+        # Check if it looks like close input
+        if text_lower.startswith("close"):
+            from app.crypto_bot.handlers import TradeHandler
+
+            handler = TradeHandler()
+            await handler.handle_close_natural(update, context, text)
+            return
+
         # Default: show help
         await update.message.reply_text(
             "💰 <b>Crypto P&L Bot</b>\n\n"
