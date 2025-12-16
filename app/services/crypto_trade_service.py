@@ -39,6 +39,7 @@ class CryptoTradeService:
         trade = CryptoTrade(
             user_id=data.user_id,
             coin=data.coin.upper(),
+            direction=data.direction.value,
             budget=data.budget,
             entry=data.entry,
             stoploss=data.stoploss,
