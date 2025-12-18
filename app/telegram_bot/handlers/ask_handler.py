@@ -9,6 +9,7 @@ from app.models.schemas.task import TaskSearchRequest
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.task_repository import TaskRepository
 from app.services.task_service import TaskService
+from app.support.agent_support import get_agent_support
 from app.support.langchain_support import get_langchain_support
 from app.support.memory_support import MemorySupport
 from app.support.rag_support import get_rag_support
@@ -31,6 +32,7 @@ class AskHandler(BaseHandler):
         self.telegram_support = TelegramSupport()
         self.rag_support = get_rag_support()
         self.langchain_support = get_langchain_support()
+        self.agent_support = get_agent_support()
 
     @property
     def commands(self) -> list[str]:
@@ -96,19 +98,25 @@ class AskHandler(BaseHandler):
             )
 
             try:
+                # Get or create user to get database user ID
+                user = await self.get_or_create_user(update, session)
+
                 # Get conversation history
                 history = await memory_support.get_history(user_id)
 
                 # Retrieve relevant tasks for context
                 relevant_tasks = await self._retrieve_relevant_tasks(
+                    user_id=user.id,
                     question=question,
                     task_service=task_service,
                 )
 
-                # Generate AI response
-                response = await self.rag_support.answer_question(
+                # Generate AI response using agent with tools
+                response = await self.agent_support.answer_question(
+                    user_id=user.id,
                     question=question,
-                    tasks=relevant_tasks,
+                    task_service=task_service,
+                    tasks_context=relevant_tasks,
                     history=history,
                 )
 
@@ -141,12 +149,14 @@ class AskHandler(BaseHandler):
 
     async def _retrieve_relevant_tasks(
         self,
+        user_id: int,
         question: str,
         task_service: TaskService,
     ) -> list:
         """Retrieve tasks relevant to the question.
 
         Args:
+            user_id: Database user ID.
             question: User's question.
             task_service: Task service instance.
 
@@ -159,7 +169,7 @@ class AskHandler(BaseHandler):
                 query=question,
                 limit=10,
             )
-            results = await task_service.search_tasks(search_request)
+            results = await task_service.search_tasks(user_id, search_request)
             return [r.task for r in results]
 
         except Exception as e:
@@ -169,6 +179,7 @@ class AskHandler(BaseHandler):
                 from app.models.schemas.task import TaskPeriodType
 
                 tasks = await task_service.get_tasks_by_period(
+                    user_id=user_id,
                     period_type=TaskPeriodType.DAILY,
                     period_date=date.today(),
                 )
