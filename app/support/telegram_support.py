@@ -47,6 +47,7 @@ class ParsedTaskDetails:
     scheduled_time: time | None = None
     scheduled_end_time: time | None = None
     scheduled_date: date | None = None
+    end_date: date | None = None
 
 
 class TelegramSupport:
@@ -81,6 +82,24 @@ class TelegramSupport:
         re.IGNORECASE,
     )
     TOMORROW_PATTERN = re.compile(r"\btomorrow\b", re.IGNORECASE)
+
+    # Due date pattern: "due 3d", "due: +3d", "due tomorrow", "due at 20-12-2025"
+    # Supports: due/due:/due at + relative (3d, +3d, 3d+, 1w) or absolute dates
+    DUE_DATE_PATTERN = re.compile(
+        r"\bdue(?::\s*|(?:\s+at)?\s+)(\+?\d+[dw]\+?|\d{1,2}-\d{1,2}-\d{4}|\d{4}-\d{1,2}-\d{1,2}|tomorrow|next\s+\w+)",
+        re.IGNORECASE,
+    )
+
+    # Day name mapping for "next tuesday" etc
+    DAY_NAMES = {
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6,
+    }
 
     def parse_add_command(self, text: str) -> tuple[TaskPeriodType, str, list[str]]:
         """Parse /add command arguments to extract period, category, and tasks.
@@ -161,6 +180,14 @@ class TelegramSupport:
                 remaining = pattern.sub("", remaining)
                 break
 
+        # Extract due date (end_date) FIRST - before time patterns to avoid conflicts
+        # e.g., "due at 24-12-2025" would otherwise match TIME_PATTERN on "at 24"
+        end_date = None
+        due_match = self.DUE_DATE_PATTERN.search(remaining)
+        if due_match:
+            end_date = self._parse_due_date(due_match.group(1))
+            remaining = self.DUE_DATE_PATTERN.sub("", remaining)
+
         # Extract time range first (at X to Y)
         scheduled_time = None
         scheduled_end_time = None
@@ -216,6 +243,7 @@ class TelegramSupport:
             scheduled_time=scheduled_time,
             scheduled_end_time=scheduled_end_time,
             scheduled_date=scheduled_date,
+            end_date=end_date,
         )
 
     def _parse_time_match(
@@ -307,6 +335,69 @@ class TelegramSupport:
         # Try "Jan 20, 2024" format
         try:
             return datetime.strptime(date_str, "%b %d, %Y").date()
+        except ValueError:
+            pass
+
+        return None
+
+    def _parse_due_date(self, due_str: str) -> date | None:
+        """Parse due date from various formats.
+
+        Supports:
+        - Relative: 3d, +3d, 3d+ (3 days), 1w, +1w (1 week)
+        - Natural: tomorrow, next tuesday
+        - Specific: 20-12-2025 (DD-MM-YYYY) or 2025-12-20 (YYYY-MM-DD)
+
+        Args:
+            due_str: Due date string from regex match.
+
+        Returns:
+            date object or None if parsing fails.
+        """
+        if not due_str:
+            return None
+
+        due_str = due_str.strip().lower()
+        today = date.today()
+
+        # Handle "tomorrow"
+        if due_str == "tomorrow":
+            return today + timedelta(days=1)
+
+        # Handle relative format: 3d, +3d, 3d+, 1w, +1w
+        # Strip leading/trailing + and check for d/w suffix
+        relative_str = due_str.strip("+")
+        if relative_str and relative_str[-1] in ("d", "w"):
+            try:
+                num = int(relative_str[:-1])
+                unit = relative_str[-1]
+                if unit == "d":
+                    return today + timedelta(days=num)
+                elif unit == "w":
+                    return today + timedelta(weeks=num)
+            except (ValueError, IndexError):
+                pass
+
+        # Handle "next tuesday" etc
+        if due_str.startswith("next "):
+            day_name = due_str[5:].strip()
+            if day_name in self.DAY_NAMES:
+                target_weekday = self.DAY_NAMES[day_name]
+                current_weekday = today.weekday()
+                days_ahead = target_weekday - current_weekday
+                if days_ahead <= 0:  # Target day already happened this week
+                    days_ahead += 7
+                return today + timedelta(days=days_ahead)
+
+        # Handle DD-MM-YYYY format (e.g., 20-12-2025)
+        try:
+            return datetime.strptime(due_str, "%d-%m-%Y").date()
+        except ValueError:
+            pass
+
+        # Handle YYYY-MM-DD format (e.g., 2025-12-20)
+        try:
+            return datetime.strptime(due_str, "%Y-%m-%d").date()
         except ValueError:
             pass
 

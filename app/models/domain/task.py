@@ -82,6 +82,7 @@ class Task(BaseEntity):
     scheduled_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     scheduled_end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Relationship to user (many-to-one)
     user: Mapped["TelegramUser"] = relationship(  # noqa: F821

@@ -163,17 +163,35 @@ class TaskHandler(BaseHandler):
 
                 # Create tasks grouped by category
                 for category, title, priority in parsed.tasks:
+                    # Parse task details to extract scheduling info
+                    parsed_details = self.telegram_support.parse_task_details(title)
+
+                    # Use parsed title (with scheduling keywords removed)
+                    # Fall back to original title if parsing resulted in empty
+                    final_title = (
+                        parsed_details.title if parsed_details.title else title
+                    )
+
+                    # If bulk parser detected a non-normal priority, use it
+                    # Otherwise, use the priority from parsed_details
+                    final_priority = (
+                        priority
+                        if priority != TaskPriority.NORMAL
+                        else parsed_details.priority
+                    )
+
                     tasks = await service.create_multiple_tasks(
                         user_id=user.id,
-                        titles=[title],
+                        titles=[final_title],
                         category=category,
                         period_type=parsed.period,
                         period_date=today,
-                        priorities=[priority],
-                        durations=[None],
-                        scheduled_times=[None],
-                        scheduled_end_times=[None],
-                        scheduled_dates=[None],
+                        priorities=[final_priority],
+                        durations=[parsed_details.duration_minutes],
+                        scheduled_times=[parsed_details.scheduled_time],
+                        scheduled_end_times=[parsed_details.scheduled_end_time],
+                        scheduled_dates=[parsed_details.scheduled_date],
+                        end_dates=[parsed_details.end_date],
                     )
                     created_tasks.extend(tasks)
 
@@ -363,6 +381,7 @@ class TaskHandler(BaseHandler):
         scheduled_times = [pt.scheduled_time for pt in parsed_tasks]
         scheduled_end_times = [pt.scheduled_end_time for pt in parsed_tasks]
         scheduled_dates = [pt.scheduled_date for pt in parsed_tasks]
+        end_dates = [pt.end_date for pt in parsed_tasks]
 
         if not titles:
             await self.send_message(
@@ -399,6 +418,7 @@ class TaskHandler(BaseHandler):
                 scheduled_times=scheduled_times,
                 scheduled_end_times=scheduled_end_times,
                 scheduled_dates=scheduled_dates,
+                end_dates=end_dates,
             )
 
             # Get period stats for this user

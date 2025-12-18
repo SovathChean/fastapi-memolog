@@ -98,6 +98,11 @@ class TaskCreate(BaseSchema):
         description="Specific scheduled date (if different from period_date)",
         examples=["2024-01-20"],
     )
+    end_date: date | None = Field(
+        default=None,
+        description="Due date / end date for the task",
+        examples=["2024-01-25"],
+    )
 
 
 class TaskUpdate(BaseSchema):
@@ -119,6 +124,10 @@ class TaskUpdate(BaseSchema):
         min_length=1,
         max_length=100,
         description="Task category for grouping",
+    )
+    end_date: date | None = Field(
+        default=None,
+        description="Due date / end date for the task",
     )
 
 
@@ -228,6 +237,7 @@ class TaskResponse(BaseSchema):
     scheduled_time: time | None = Field(None, description="Scheduled start time")
     scheduled_end_time: time | None = Field(None, description="Scheduled end time")
     scheduled_date: date | None = Field(None, description="Specific scheduled date")
+    end_date: date | None = Field(None, description="Due date / end date")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

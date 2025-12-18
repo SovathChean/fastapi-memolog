@@ -475,6 +475,7 @@ class TaskService(BaseService):
         scheduled_times: list[time | None] | None = None,
         scheduled_end_times: list[time | None] | None = None,
         scheduled_dates: list[date | None] | None = None,
+        end_dates: list[date | None] | None = None,
     ) -> list[Task]:
         """Create multiple tasks at once with optional scheduling.
 
@@ -489,6 +490,7 @@ class TaskService(BaseService):
             scheduled_times: Optional list of start times.
             scheduled_end_times: Optional list of end times.
             scheduled_dates: Optional list of scheduled dates.
+            end_dates: Optional list of due dates / end dates.
 
         Returns:
             List of created tasks.
@@ -522,6 +524,10 @@ class TaskService(BaseService):
                 scheduled_dates[i] if scheduled_dates and i < len(scheduled_dates)
                 else None
             )
+            end_date = (
+                end_dates[i] if end_dates and i < len(end_dates)
+                else None
+            )
 
             task_data = TaskCreate(
                 user_id=user_id,
@@ -534,6 +540,7 @@ class TaskService(BaseService):
                 scheduled_time=sched_time,
                 scheduled_end_time=sched_end,
                 scheduled_date=sched_date,
+                end_date=end_date,
             )
             task = await self.create_task(task_data)
             tasks.append(task)
