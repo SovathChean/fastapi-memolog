@@ -324,6 +324,69 @@ class TaskHandler(BaseHandler):
                 ),
             )
 
+    async def handle_status_update_natural(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """Handle natural language status update with period prefix.
+
+        Handles messages like:
+        - "Done daily:\n1. note\n2. note"
+        - "Pending weekly:\n1. reason\n2."
+
+        Args:
+            update: Telegram update object.
+            context: Callback context.
+        """
+        if not update.message or not update.message.text:
+            return
+
+        text = update.message.text
+
+        # Extract action, period, and remaining text
+        from app.support.intent_support import IntentSupport
+
+        intent_support = IntentSupport()
+        result = intent_support.extract_status_update(text)
+
+        if not result:
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    "Could not parse status update. Use format:\n"
+                    "Done weekly:\n"
+                    "1. note for task 1\n"
+                    "2. note for task 2"
+                ),
+            )
+            return
+
+        action, period, remaining = result
+
+        # If remaining text is empty or just whitespace, show error
+        if not remaining.strip():
+            await self.send_message(
+                update,
+                self.telegram_support.format_error(
+                    f"Please provide task numbers. Example:\n"
+                    f"{action.title()} {period}:\n"
+                    "1. note for task\n"
+                    "2. another note"
+                ),
+            )
+            return
+
+        # Reformat to match _parse_bulk_task_entries expected format:
+        # "weekly:\n1. note\n2. note"
+        reformatted_args = f"{period}:\n{remaining}"
+
+        # Delegate to existing handlers
+        if action == "done":
+            await self._handle_done(update, reformatted_args)
+        else:  # action == "pending"
+            await self._handle_pending(update, reformatted_args)
+
     async def _handle_add(self, update: Update, args: str) -> None:
         """Handle /add command with support for multiple tasks, scheduling, priority.
 

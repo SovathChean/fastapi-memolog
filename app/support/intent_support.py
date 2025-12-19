@@ -16,6 +16,7 @@ class MessageIntent(str, Enum):
     HELP = "help"  # Asking for help
     GREETING = "greeting"  # Saying hello
     CLEAR_HISTORY = "clear"  # Clear conversation
+    NATURAL_STATUS_UPDATE = "natural_status"  # Done/Pending with period prefix
     UNKNOWN = "unknown"  # Fallback
 
 
@@ -92,6 +93,11 @@ class IntentSupport:
         r"^(start over|new conversation|fresh start)",
     ]
 
+    # Natural status update patterns: "Done daily:", "Pending weekly:", etc.
+    NATURAL_STATUS_PATTERNS = [
+        r"^(done|pending)\s+(daily|weekly|monthly)\s*:",
+    ]
+
     def __init__(self) -> None:
         """Initialize intent support with compiled patterns."""
         self._compile_patterns()
@@ -113,6 +119,9 @@ class IntentSupport:
             re.compile(p, re.IGNORECASE) for p in self.GREETING_PATTERNS
         ]
         self._clear_re = [re.compile(p, re.IGNORECASE) for p in self.CLEAR_PATTERNS]
+        self._natural_status_re = [
+            re.compile(p, re.IGNORECASE) for p in self.NATURAL_STATUS_PATTERNS
+        ]
 
     def detect_intent(self, text: str) -> MessageIntent:
         """Detect intent from natural language text.
@@ -145,6 +154,10 @@ class IntentSupport:
         # Report
         if self._matches_any(text, self._report_re):
             return MessageIntent.REPORT
+
+        # Natural status update (more specific than complete, check first)
+        if self._matches_any(text, self._natural_status_re):
+            return MessageIntent.NATURAL_STATUS_UPDATE
 
         # Complete task
         if self._matches_any(text, self._complete_re):
@@ -281,6 +294,34 @@ class IntentSupport:
 
         return None
 
+    def extract_status_update(self, text: str) -> tuple[str, str, str] | None:
+        """Extract action, period, and remaining text from natural status update.
+
+        Args:
+            text: Message text like "Done weekly:\n1. note\n2. note"
+
+        Returns:
+            Tuple of (action, period, remaining_text) or None if not a match.
+            action: "done" or "pending"
+            period: "daily", "weekly", or "monthly"
+            remaining_text: Everything after the colon
+        """
+        if not text:
+            return None
+
+        pattern = re.compile(
+            r"^(done|pending)\s+(daily|weekly|monthly)\s*:\s*(.*)$",
+            re.IGNORECASE | re.DOTALL,
+        )
+        match = pattern.match(text.strip())
+        if match:
+            return (
+                match.group(1).lower(),
+                match.group(2).lower(),
+                match.group(3).strip(),
+            )
+        return None
+
     def get_intent_description(self, intent: MessageIntent) -> str:
         """Get human-readable description of intent.
 
@@ -300,6 +341,7 @@ class IntentSupport:
             MessageIntent.HELP: "Get help with commands",
             MessageIntent.GREETING: "Greeting",
             MessageIntent.CLEAR_HISTORY: "Clear conversation history",
+            MessageIntent.NATURAL_STATUS_UPDATE: "Update task status naturally",
             MessageIntent.UNKNOWN: "Unknown intent",
         }
         return descriptions.get(intent, "Unknown")

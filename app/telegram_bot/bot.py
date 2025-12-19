@@ -172,6 +172,12 @@ class TelegramBot:
             await handler.handle_complete_natural(update, context)
             return
 
+        if intent == MessageIntent.NATURAL_STATUS_UPDATE:
+            # Handle natural status update like "Done weekly:" or "Pending daily:"
+            handler = TaskHandler()
+            await handler.handle_status_update_natural(update, context)
+            return
+
         if intent == MessageIntent.LIST_TASKS:
             handler = ListHandler()
             # Determine period from text
