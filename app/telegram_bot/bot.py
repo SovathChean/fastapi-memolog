@@ -86,6 +86,7 @@ class TelegramBot:
             SearchHandler,
             StartHandler,
             TaskHandler,
+            WebsiteHandler,
         )
         from app.telegram_bot.handlers.ask_handler import AskHandler
         from app.telegram_bot.middleware import error_handler
@@ -98,6 +99,7 @@ class TelegramBot:
             SearchHandler(),
             ReportHandler(),
             AskHandler(),  # New conversational AI handler
+            WebsiteHandler(),
         ]
 
         # Register command handlers

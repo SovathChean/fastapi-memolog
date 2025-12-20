@@ -6,6 +6,7 @@ from app.telegram_bot.handlers.report_handler import ReportHandler
 from app.telegram_bot.handlers.search_handler import SearchHandler
 from app.telegram_bot.handlers.start_handler import StartHandler
 from app.telegram_bot.handlers.task_handler import TaskHandler
+from app.telegram_bot.handlers.website_handler import WebsiteHandler
 
 __all__ = [
     "BaseHandler",
@@ -14,4 +15,5 @@ __all__ = [
     "ListHandler",
     "SearchHandler",
     "ReportHandler",
+    "WebsiteHandler",
 ]
