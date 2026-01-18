@@ -16,7 +16,6 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.memo-api.rule=Host(`postiz.komror.com`)"
-      - "traefik.http.routers.memo-api.entrypoints=websecure"
       - "traefik.http.routers.memo-api.tls=true"
       - "traefik.http.routers.memo-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.memo-api.loadbalancer.server.port=8001"
